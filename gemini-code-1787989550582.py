@@ -15,10 +15,13 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (Smart Free Safe 🛡️)")
-st.caption("Агрегатор данных + База данных SQLite + Защита от лимитов API")
+st.title("⚽ Аналитический центр спортивных матчей (Multi-Key Pool 🛡️)")
+st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + Ротация ключей 🚀")
 
-gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+# Загрузка пула ключей из Secrets
+secret_keys = st.secrets.get("GEMINI_API_KEYS", [])
+if not secret_keys and "GEMINI_API_KEY" in st.secrets:
+    secret_keys = [st.secrets["GEMINI_API_KEY"]]
 
 default_tg_token = "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU"
 default_tg_chat_id = "500635733"
@@ -103,16 +106,23 @@ def update_history_in_db(history_data):
 
 with st.sidebar:
     st.header("⚙️ Настройки")
-    if gemini_key:
-        st.success("🟢 Gemini API подключен!")
+    keys_input = st.text_area(
+        "Gemini API Keys (через запятую или с новой строки):", 
+        value="\n".join(secret_keys) if secret_keys else "",
+        type="password"
+    )
+    active_keys = [k.strip() for k in keys_input.replace(",", "\n").split("\n") if k.strip()]
+    
+    if active_keys:
+        st.success(f"🟢 Активно ключей в пуле: {len(active_keys)}")
     else:
-        gemini_key = st.text_input("Gemini API Key:", type="password")
+        st.warning("⚠️ Введите хотя бы один Gemini API Key")
 
     st.markdown("---")
     st.header("🤖 Telegram Бот")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
-    st.info("🛡️ Защита от лимитов (429) активна")
+    st.success("🟢 Локальная БД SQLite активна!")
 
 tab1, tab2, tab3 = st.tabs(["📝 Название матча(ей)", "📸 Скриншот линии", "📋 История и результаты"])
 matches_list = []
@@ -132,6 +142,33 @@ with tab2:
         uploaded_image = Image.open(uploaded_file)
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
+def ask_gemini_pool(prompt, image=None):
+    """Ротация моделей и ключей при ошибках 429"""
+    candidate_models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.6-flash']
+    last_err = ""
+
+    if not active_keys:
+        raise Exception("Ключи API не указаны!")
+
+    for key in active_keys:
+        genai.configure(api_key=key)
+        for model_name in candidate_models:
+            for attempt in range(2):
+                try:
+                    m = genai.GenerativeModel(model_name)
+                    inputs = [prompt, image] if image else [prompt]
+                    response = m.generate_content(inputs)
+                    return response.text
+                except Exception as e:
+                    last_err = str(e)
+                    if "429" in str(e) or "Quota" in str(e):
+                        time.sleep(2)
+                        break  # Пробуем следующий ключ или модель
+                    else:
+                        time.sleep(1)
+                        continue
+    raise Exception(f"Все ключи исчерпали лимит. Ошибка: {last_err}")
+
 with tab3:
     st.subheader("📊 История прогнозов (База данных)")
     history = load_history()
@@ -140,8 +177,7 @@ with tab3:
         st.info("История пуста. Сформируйте прогнозы.")
     else:
         if st.button("🔄 Проверить результаты по каждому маркету"):
-            with st.spinner("Проверка результатов матчей..."):
-                genai.configure(api_key=gemini_key)
+            with st.spinner("Проверяем фактические итоги матчей..."):
                 updated_count = 0
                 
                 for item in history:
@@ -164,8 +200,7 @@ with tab3:
                     (Если идет или не начался, напиши PENDING)
                     """
                     try:
-                        m = genai.GenerativeModel('gemini-3.6-flash')
-                        res = m.generate_content(check_prompt).text.strip().upper()
+                        res = ask_gemini_pool(check_prompt).upper()
                         
                         if "PENDING" in res:
                             continue
@@ -200,24 +235,6 @@ with tab3:
                 st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
                 st.write(f"**Разбор:** {h_item['review']}")
 
-def ask_gemini_with_retry(prompt, image=None):
-    """Функция автоматического обхода лимитов: при ошибке 429 сама ждет и повторяет запрос"""
-    m = genai.GenerativeModel('gemini-3.6-flash')
-    inputs = [prompt, image] if image else [prompt]
-    
-    for attempt in range(5):
-        try:
-            response = m.generate_content(inputs)
-            return response.text
-        except Exception as e:
-            if "429" in str(e) or "Quota" in str(e):
-                # Если уперлись в лимит, ждем 8 секунд и пробуем снова (лимит сбрасывается)
-                time.sleep(8)
-                continue
-            else:
-                raise e
-    raise Exception("Превышен лимит запросов. Подождите пару минут и попробуйте снова.")
-
 def parse_match_block(block_text):
     data = {}
     for line in block_text.split('\n'):
@@ -251,18 +268,16 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
         return False
 
 if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
-    if not gemini_key:
-        st.error("Укажите Gemini API Key!")
+    if not active_keys:
+        st.error("Укажите хотя бы один Gemini API Key!")
     elif not matches_list and not uploaded_image:
         st.warning("Укажите матчи или загрузите скриншот!")
     else:
-        genai.configure(api_key=gemini_key)
-
         with st.spinner("1/2 Распознавание матчей..."):
             if uploaded_image and not matches_list:
                 try:
-                    ocr_prompt = "Найди на скриншоте матчи в формате: Команда 1 - Команда 2. Верни только список."
-                    raw_ocr = ask_gemini_with_retry(ocr_prompt, uploaded_image)
+                    ocr_prompt = "Найди на скриншоте ВСЕ спортивные матчи в формате: Команда 1 - Команда 2. Верни только список матчей."
+                    raw_ocr = ask_gemini_pool(ocr_prompt, uploaded_image)
                     matches_list = [m.strip().replace("*", "") for m in raw_ocr.strip().split("\n") if "-" in m or "—" in m]
                 except Exception as e:
                     st.error(f"🔴 Ошибка чтения скриншота: {e}")
@@ -286,20 +301,27 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 real_oddsportal = get_oddsportal_dropping_odds(match)
 
                 analysis_prompt = f"""
-                Сделай профессиональный экспресс-прогноз для матча: {match}.
-                Данные: Arbworld: {real_arbworld} | Corners: {real_corners} | FootyStats: {real_footystats} | FBref: {real_fbref} | Oddsportal: {real_oddsportal}
+                Сделай профессиональный прогноз для матча: {match}.
+                Учитывай фактор поля и погоду.
+
+                ДАННЫЕ АГРЕГАТОРОВ:
+                - Arbworld: {real_arbworld}
+                - Corner Stats: {real_corners}
+                - FootyStats: {real_footystats}
+                - FBref: {real_fbref}
+                - Oddsportal: {real_oddsportal}
 
                 Ответь СТРОГО в формате:
-                ИСХОД: [Ставка]
-                ТОТАЛ: [Ставка]
-                УГЛОВЫЕ: [Ставка]
-                УВЕРЕННОСТЬ: [X/10]
+                ИСХОД: [Ставка на исход или фору]
+                ТОТАЛ: [Ставка на тотал голов]
+                УГЛОВЫЕ: [Ставка на угловые]
+                УВЕРЕННОСТЬ: [X/10, например 9.5/10 или 8/10]
                 ПОГОДА_ПОЛЕ: [Кратко факты]
-                РАЗБОР: [Короткое обоснование]
+                РАЗБОР: [Обоснование в 2-3 предложениях]
                 """
 
                 try:
-                    raw_response = ask_gemini_with_retry(analysis_prompt)
+                    raw_response = ask_gemini_pool(analysis_prompt)
                     parsed_data = parse_match_block(raw_response)
 
                     confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '9.5/10')
@@ -378,3 +400,4 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
         else:
             st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
+                
