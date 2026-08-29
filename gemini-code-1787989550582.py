@@ -1,7 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import time
 import requests
 from datetime import datetime
 import sqlite3
@@ -15,8 +14,8 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("Агрегатор данных + Облачная база данных SQLite 🚀")
+st.title("⚽ Аналитический центр спортивных матчей (Turbo Pro 🚀)")
+st.caption("Агрегатор данных + База данных SQLite + Ускоренный режим Gemini Pro")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -26,7 +25,6 @@ default_tg_chat_id = "500635733"
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", default_tg_token)
 tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", default_tg_chat_id)
 
-# --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ SQLite ---
 def init_db():
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
@@ -63,19 +61,10 @@ def load_history():
     history = []
     for row in rows:
         history.append({
-            "match": row[0],
-            "pick": row[1],
-            "total": row[2],
-            "corners": row[3],
-            "confidence": row[4],
-            "weather": row[5],
-            "review": row[6],
-            "message_id": int(row[7]) if row[7] else 0,
-            "overall_status": row[8],
-            "status_pick": row[9],
-            "status_total": row[10],
-            "status_corners": row[11],
-            "date": row[12]
+            "match": row[0], "pick": row[1], "total": row[2], "corners": row[3],
+            "confidence": row[4], "weather": row[5], "review": row[6],
+            "message_id": int(row[7]) if row[7] else 0, "overall_status": row[8],
+            "status_pick": row[9], "status_total": row[10], "status_corners": row[11], "date": row[12]
         })
     return history
 
@@ -86,19 +75,10 @@ def save_match_to_db(item):
         INSERT INTO history (match, pick, total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_corners, date)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
-        item.get("match"),
-        item.get("pick"),
-        item.get("total"),
-        item.get("corners"),
-        item.get("confidence"),
-        item.get("weather"),
-        item.get("review"),
-        item.get("message_id"),
-        item.get("overall_status", "⏳ Ожидание"),
-        item.get("status_pick", "⏳"),
-        item.get("status_total", "⏳"),
-        item.get("status_corners", "⏳"),
-        item.get("date")
+        item.get("match"), item.get("pick"), item.get("total"), item.get("corners"),
+        item.get("confidence"), item.get("weather"), item.get("review"), item.get("message_id"),
+        item.get("overall_status", "⏳ Ожидание"), item.get("status_pick", "⏳"),
+        item.get("status_total", "⏳"), item.get("status_corners", "⏳"), item.get("date")
     ))
     conn.commit()
     conn.close()
@@ -112,19 +92,10 @@ def update_history_in_db(history_data):
             INSERT INTO history (match, pick, total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_corners, date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            item.get("match"),
-            item.get("pick"),
-            item.get("total"),
-            item.get("corners"),
-            item.get("confidence"),
-            item.get("weather"),
-            item.get("review"),
-            item.get("message_id"),
-            item.get("overall_status"),
-            item.get("status_pick"),
-            item.get("status_total"),
-            item.get("status_corners"),
-            item.get("date")
+            item.get("match"), item.get("pick"), item.get("total"), item.get("corners"),
+            item.get("confidence"), item.get("weather"), item.get("review"), item.get("message_id"),
+            item.get("overall_status"), item.get("status_pick"), item.get("status_total"),
+            item.get("status_corners"), item.get("date")
         ))
     conn.commit()
     conn.close()
@@ -140,7 +111,7 @@ with st.sidebar:
     st.header("🤖 Telegram Бот")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
-    st.success("🟢 Локальная БД SQLite активна!")
+    st.success("⚡ Турбо-режим AI Pro активен!")
 
 tab1, tab2, tab3 = st.tabs(["📝 Название матча(ей)", "📸 Скриншот линии", "📋 История и результаты"])
 matches_list = []
@@ -168,7 +139,7 @@ with tab3:
         st.info("История пуста. Сформируйте прогнозы.")
     else:
         if st.button("🔄 Проверить результаты по каждому маркету"):
-            with st.spinner("Проверяем фактические итоги матчей и обновляем Telegram..."):
+            with st.spinner("Быстрая проверка результатов матчей..."):
                 genai.configure(api_key=gemini_key)
                 updated_count = 0
                 
@@ -183,29 +154,24 @@ with tab3:
                     msg_id = item["message_id"]
                     
                     check_prompt = f"""
-                    Ты спортивный бот-аналитик. Проверь результаты реально завершившегося матча: "{match_name}".
-                    Нам нужно узнать итоги по трем позициям:
-                    1. Исход/фора: "{pick}"
-                    2. Тотал голов: "{total_pick}"
-                    3. Угловые: "{corners_pick}"
-
-                    Ответь СТРОГО в формате:
-                    ИСХОД: [WIN или LOSS]
-                    ТОТАЛ: [WIN или LOSS]
-                    УГЛОВЫЕ: [WIN или LOSS]
-                    Если матч еще не завершился, напиши PENDING для соответствующих полей.
+                    Проверь результат матча: "{match_name}".
+                    Ставки: 1) Исход: {pick}, 2) Тотал: {total_pick}, 3) Угловые: {corners_pick}.
+                    Ответь СТРОГО:
+                    ИСХОД: [WIN/LOSS]
+                    ТОТАЛ: [WIN/LOSS]
+                    УГЛОВЫЕ: [WIN/LOSS]
+                    (Если идет или не начался, напиши PENDING)
                     """
                     try:
                         m = genai.GenerativeModel('gemini-2.5-flash')
-                        res = m.generate_content(check_prompt).text.strip()
-                        res_upper = res.upper()
+                        res = m.generate_content(check_prompt).text.strip().upper()
                         
-                        if "PENDING" in res_upper:
+                        if "PENDING" in res:
                             continue
 
-                        item["status_pick"] = "✅" if "ИСХОД: WIN" in res_upper or "WIN" in res_upper.split("ИСХОД")[-1].split("\n")[0] else "❌"
-                        item["status_total"] = "✅" if "ТОТАЛ: WIN" in res_upper else "❌"
-                        item["status_corners"] = "✅" if "УГЛОВЫЕ: WIN" in res_upper else "❌"
+                        item["status_pick"] = "✅" if "ИСХОД: WIN" in res or "WIN" in res.split("ИСХОД")[-1].split("\n")[0] else "❌"
+                        item["status_total"] = "✅" if "ТОТАЛ: WIN" in res else "❌"
+                        item["status_corners"] = "✅" if "УГЛОВЫЕ: WIN" in res else "❌"
                         item["overall_status"] = "🎯 Завершено"
 
                         updated_msg_text = (
@@ -224,7 +190,7 @@ with tab3:
                         continue
                 
                 update_history_in_db(history)
-                st.success(f"Проверка завершена! Обновлено матчей: {updated_count}")
+                st.success(f"Готово! Обновлено матчей: {updated_count}")
         
         for idx, h_item in enumerate(reversed(history), 1):
             with st.expander(f"{h_item['overall_status']} | {h_item['match']} ({h_item['date']})"):
@@ -234,19 +200,11 @@ with tab3:
                 st.write(f"**Разбор:** {h_item['review']}")
 
 def ask_gemini(prompt, image=None):
-    candidate_models = ['gemini-2.5-flash', 'models/gemini-2.5-flash', 'gemini-3.5-flash', 'models/gemini-3.5-flash']
-    last_error = ""
-    for model_name in candidate_models:
-        for attempt in range(3):
-            try:
-                m = genai.GenerativeModel(model_name)
-                inputs = [prompt, image] if image else [prompt]
-                return m.generate_content(inputs).text
-            except Exception as e:
-                last_error = str(e)
-                time.sleep(4 if ("429" in str(e) or "Quota" in str(e)) else 2)
-                continue
-    raise Exception(f"Превышен лимит запросов: {last_error}")
+    # Используем самую быструю модель без лишних циклов ожидания за счет подписки Pro
+    m = genai.GenerativeModel('gemini-2.5-flash')
+    inputs = [prompt, image] if image else [prompt]
+    response = m.generate_content(inputs)
+    return response.text
 
 def parse_match_block(block_text):
     data = {}
@@ -262,7 +220,7 @@ def send_telegram_message(text, token, chat_id):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=5)
+        res = requests.post(url, json=payload, timeout=3)
         if res.status_code == 200:
             return True, "Успешно", res.json()["result"]["message_id"]
         return False, res.text, None
@@ -275,12 +233,12 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
     url = f"https://api.telegram.org/bot{token}/editMessageText"
     payload = {"chat_id": chat_id, "message_id": message_id, "text": new_text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=5)
+        res = requests.post(url, json=payload, timeout=3)
         return res.status_code == 200
     except:
         return False
 
-if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
+if st.button("🚀 Сформировать прогнозы и Экспресс дня (Turbo)", type="primary", use_container_width=True):
     if not gemini_key:
         st.error("Укажите Gemini API Key!")
     elif not matches_list and not uploaded_image:
@@ -288,10 +246,10 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
     else:
         genai.configure(api_key=gemini_key)
 
-        with st.spinner("1/3 Распознавание матчей со скриншота..."):
+        with st.spinner("1/2 Быстрое распознавание матчей..."):
             if uploaded_image and not matches_list:
                 try:
-                    ocr_prompt = "Найди на скриншоте ВСЕ спортивные матчи в формате: Команда 1 - Команда 2."
+                    ocr_prompt = "Найди на скриншоте матчи в формате: Команда 1 - Команда 2. Верни только список."
                     raw_ocr = ask_gemini(ocr_prompt, uploaded_image)
                     matches_list = [m.strip().replace("*", "") for m in raw_ocr.strip().split("\n") if "-" in m or "—" in m]
                 except Exception as e:
@@ -302,14 +260,14 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
             st.error("Матчи не найдены.")
             st.stop()
 
-        st.success(f"Найдено матчей для анализа: **{len(matches_list)}**")
+        st.success(f"Найдено матчей: **{len(matches_list)}**")
 
         accumulated_express_items = []
 
         for i, match in enumerate(matches_list, 1):
-            with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
-                time.sleep(4)
-
+            with st.spinner(f"2/2 Анализ матча {i}/{len(matches_list)} ({match})..."):
+                
+                # Запросы к парсерам выполняются напрямую без пауз
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
                 real_footystats = get_footystats_data(match)
@@ -317,23 +275,16 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 real_oddsportal = get_oddsportal_dropping_odds(match)
 
                 analysis_prompt = f"""
-                Ты профессиональный спортивный аналитик. Сделай глубокий прогноз для матча: {match}.
-                Учитывай фактор поля и погоду.
-
-                ДАННЫЕ АГРЕГАТОРОВ:
-                - Arbworld: {real_arbworld}
-                - Corner Stats: {real_corners}
-                - FootyStats: {real_footystats}
-                - FBref: {real_fbref}
-                - Oddsportal: {real_oddsportal}
+                Сделай профессиональный экспресс-прогноз для матча: {match}.
+                Данные: Arbworld: {real_arbworld} | Corners: {real_corners} | FootyStats: {real_footystats} | FBref: {real_fbref} | Oddsportal: {real_oddsportal}
 
                 Ответь СТРОГО в формате:
-                ИСХОД: [Ставка на исход или фору]
-                ТОТАЛ: [Ставка на тотал голов]
-                УГЛОВЫЕ: [Ставка на угловые]
-                УВЕРЕННОСТЬ: [Оценка по 10-ти бальной шкале строго в формате X/10, например: 9.5/10 или 10/10]
-                ПОГОДА_ПОЛЕ: [Краткий учет фактора поля и погоды]
-                РАЗБОР: [Развернутое обоснование ставки и аналитика матча в 2-3 предложениях]
+                ИСХОД: [Ставка]
+                ТОТАЛ: [Ставка]
+                УГЛОВЫЕ: [Ставка]
+                УВЕРЕННОСТЬ: [X/10]
+                ПОГОДА_ПОЛЕ: [Кратко факты]
+                РАЗБОР: [Короткое обоснование]
                 """
 
                 try:
@@ -382,32 +333,23 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
 
                     success, msg, msg_id = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
                     if success and msg_id:
-                        st.toast(f"📤 Прогноз по матчу {match} отправлен в Telegram!", icon="✅")
-                        
+                        st.toast(f"📤 Прогноз отправлен в Telegram!", icon="✅")
                         match_item = {
-                            "match": match,
-                            "pick": pick_val,
-                            "total": total_val,
-                            "corners": corners_val,
-                            "confidence": confidence_str,
-                            "weather": weather_val,
-                            "review": review_val,
-                            "message_id": msg_id,
-                            "overall_status": "⏳ Ожидание",
-                            "status_pick": "⏳",
-                            "status_total": "⏳",
-                            "status_corners": "⏳",
+                            "match": match, "pick": pick_val, "total": total_val, "corners": corners_val,
+                            "confidence": confidence_str, "weather": weather_val, "review": review_val,
+                            "message_id": msg_id, "overall_status": "⏳ Ожидание",
+                            "status_pick": "⏳", "status_total": "⏳", "status_corners": "⏳",
                             "date": datetime.now().strftime("%Y-%m-%d %H:%M")
                         }
                         save_match_to_db(match_item)
                     else:
-                        st.error(f"Не удалось отправить в Telegram: {msg}")
+                        st.error(f"Ошибка Telegram: {msg}")
 
                 except Exception as e:
-                    st.error(f"🔴 Ошибка анализа матча {match}: {e}")
+                    st.error(f"🔴 Ошибка анализа {match}: {e}")
 
         if len(accumulated_express_items) >= 1:
-            with st.spinner("3/3 Формирование ТОП-Экспресса дня..."):
+            with st.spinner("Формирование ТОП-Экспресса..."):
                 express_lines = []
                 approx_total_odds = round(1.75 ** len(accumulated_express_items), 2)
 
