@@ -43,23 +43,22 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
+    # Переход на стабильную и актуальную модель gemini-2.0-flash
     candidate_models = [
-        'gemini-3.6-flash',
-        'models/gemini-3.6-flash',
-        'gemini-3.0-flash',
-        'models/gemini-3.0-flash'
+        'gemini-2.0-flash',
+        'models/gemini-2.0-flash'
     ]
     for model_name in candidate_models:
-        for attempt in range(4):
+        for attempt in range(3):
             try:
                 m = genai.GenerativeModel(model_name)
                 inputs = [prompt, image] if image else [prompt]
                 response = m.generate_content(inputs)
                 return response.text
             except Exception:
-                time.sleep(5)
+                time.sleep(3)
                 continue
-    raise Exception("Ошибка обращения к Gemini API. Превышен лимит запросов или некорректный ключ.")
+    raise Exception("Ошибка обращения к Gemini API. Проверьте правильность введенного ключа.")
 
 def parse_match_block(block_text):
     data = {}
@@ -100,8 +99,7 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
                 
-                # Увеличенная пауза (5 секунд) для защиты от превышения лимитов бесплатного API
-                time.sleep(5)
+                time.sleep(2)
 
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
