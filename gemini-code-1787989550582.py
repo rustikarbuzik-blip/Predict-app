@@ -1,11 +1,12 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
+from parsers import get_arbworld_moneyway, get_corner_stats_data, get_footystats_data
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("БЕСПЛАТНЫЙ агрегатор: FootyStats, Arbworld, Oddsportal, NB Bet, Corner Stats")
+st.caption("Агрегатор: РЕАЛЬНЫЕ Arbworld, Corner Stats, FootyStats + Oddsportal, NB Bet")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -52,7 +53,6 @@ def ask_gemini(prompt, image=None):
     raise Exception("Ошибка обращения к Gemini API. Проверьте ключ.")
 
 def parse_match_block(block_text):
-    """Парсит текстовый блок ответа AI в словарь данных"""
     data = {}
     for line in block_text.split('\n'):
         if ':' in line:
@@ -68,8 +68,7 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
     else:
         genai.configure(api_key=gemini_key)
 
-        # 1. Извлечение списка матчей (со скриншота или из текста)
-        with st.spinner("1/2 Распознавание всех матчей со скриншота..."):
+        with st.spinner("1/3 Распознавание матчей со скриншота..."):
             if uploaded_image and not matches_list:
                 try:
                     ocr_prompt = (
@@ -89,57 +88,53 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
 
         st.success(f" Найдено матчей для анализа: **{len(matches_list)}**")
 
-        # 2. Пакетная генерация прогнозов для каждого матча
-        with st.spinner(f"2/2 Анализ и формирование прогнозов по {len(matches_list)} матчам..."):
-            matches_formatted_str = "\n".join(f"- {m}" for m in matches_list)
-            
-            analysis_prompt = f"""
-            Ты спортивный аналитик. Сделай прогнозирование для каждого из следующих матчей:
-            {matches_formatted_str}
-
-            Для КАЖДОГО матча смоделируй данные с 5 агрегаторов (FootyStats, Arbworld, Oddsportal, NB Bet, Corner Stats) и сформируй рекомендацию.
-
-            Выведи ответ СТРОГО в следующем формате для каждого матча:
-
-            === МАТЧ: [Название матча] ===
-            FOOTYSTATS: [1 предложение о форме и xG]
-            ARBWORLD: [1 предложение о прогрузах Moneyway]
-            ODDSPORTAL: [1 предложение о движении кэфов]
-            NBBET: [1 предложение о трендах и сериях]
-            CORNERSTATS: [1 предложение по тоталу угловых]
-            ИСХОД: [Ставка на исход или фору, например: П1 или Фора 1 (0)]
-            ТОТАЛ: [Ставка на тотал голов, например: ИТБ1 (1.5)]
-            УГЛОВЫЕ: [Ставка на угловые, например: ТБ (9.5)]
-            УВЕРЕННОСТЬ: [Оценка уверенности: например, 4/5]
-            РАЗБОР: [Короткое обоснование ставки из 2 предложений]
-            === КОНЕЦ МАТЧА ===
-            """
-
-            try:
-                raw_response = ask_gemini(analysis_prompt)
+        for i, match in enumerate(matches_list, 1):
+            with st.spinner(f"2/3 Парсинг всех сервисов и ИИ-анализ матча {i}/{len(matches_list)}: {match}..."):
                 
-                # Разделение ответа по блокам матчей
-                raw_blocks = raw_response.split("=== МАТЧ:")
-                
-                for i, block in enumerate(raw_blocks):
-                    if not block.strip() or "===" not in block:
-                        continue
-                    
-                    match_header = block.split("===")[0].strip()
-                    parsed_data = parse_match_block(block)
+                # Вызовы парсеров реальных данных
+                real_arbworld = get_arbworld_moneyway(match)
+                real_corners = get_corner_stats_data(match)
+                real_footystats = get_footystats_data(match)
 
-                    # Отображаем каждый матч в отдельном раскрывающемся меню
-                    with st.expander(f"⚽ {i}. {match_header}", expanded=(i == 1)):
+                analysis_prompt = f"""
+                Ты спортивный аналитик. Сделай прогноз для футбольного матча: {match}.
+
+                РЕАЛЬНЫЕ ДАННЫЕ С ARBWORLD: {real_arbworld}
+                РЕАЛЬНЫЕ ДАННЫЕ С CORNER STATS: {real_corners}
+                РЕАЛЬНЫЕ ДАННЫЕ С FOOTYSTATS: {real_footystats}
+
+                Задания:
+                1. Поле ARBWORLD заполни значением: {real_arbworld}
+                2. Поле CORNERSTATS заполни значением: {real_corners}
+                3. Поле FOOTYSTATS заполни значением: {real_footystats}
+                4. Смоделируй данные оставшихся 2 сервисов (Oddsportal, NB Bet).
+                5. Сформируй итоговую рекомендацию на основе полученной реальной статистики.
+
+                Ответь СТРОГО в формате:
+                ODDSPORTAL: [1 предложение о движении кэфов]
+                NBBET: [1 предложение о трендах и сериях]
+                ИСХОД: [Ставка на исход или фору, например: П1 или Фора 1 (0)]
+                ТОТАЛ: [Ставка на тотал голов, например: ИТБ1 (1.5)]
+                УГЛОВЫЕ: [Ставка на угловые, например: ТБ (9.5)]
+                УВЕРЕННОСТЬ: [Оценка уверенности: например, 4/5]
+                РАЗБОР: [Короткое обоснование ставки из 2 предложений]
+                """
+
+                try:
+                    raw_response = ask_gemini(analysis_prompt)
+                    parsed_data = parse_match_block(raw_response)
+
+                    with st.expander(f"⚽ {i}. {match}", expanded=(i == 1)):
                         st.markdown("#### 📊 Данные аналитических сервисов")
                         c1, c2, c3 = st.columns(3)
                         with c1:
-                            st.info(f"**FootyStats:**\n{parsed_data.get('FOOTYSTATS', 'Анализируется...')}")
-                            st.info(f"**Arbworld:**\n{parsed_data.get('ARBWORLD', 'Анализируется...')}")
+                            st.success(f"**FootyStats (РЕАЛЬНЫЕ ДАННЫЕ):**\n{real_footystats}")
+                            st.success(f"**Arbworld (РЕАЛЬНЫЕ ДАННЫЕ):**\n{real_arbworld}")
                         with c2:
                             st.info(f"**Oddsportal:**\n{parsed_data.get('ODDSPORTAL', 'Анализируется...')}")
                             st.info(f"**NB Bet:**\n{parsed_data.get('NBBET', 'Анализируется...')}")
                         with c3:
-                            st.info(f"**Corner Stats:**\n{parsed_data.get('CORNERSTATS', 'Анализируется...')}")
+                            st.success(f"**Corner Stats (РЕАЛЬНЫЕ ДАННЫЕ):**\n{real_corners}")
 
                         st.markdown("---")
                         st.markdown("#### 🎯 Карточка ставки")
@@ -152,5 +147,5 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
 
                         st.success(f"**📋 Аналитический разбор:**\n\n{parsed_data.get('РАЗБОР', 'Анализ завершен.')}")
 
-            except Exception as e:
-                st.error(f"🔴 Ошибка при генерации пакета прогнозов: {e}")
+                except Exception as e:
+                    st.error(f"🔴 Ошибка анализа матча {match}: {e}")
