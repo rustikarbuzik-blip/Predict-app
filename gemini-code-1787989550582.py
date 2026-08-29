@@ -17,11 +17,10 @@ from parsers import (
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Экспресс дня (9.5-10/10) + Детальный трекер 🚀")
+st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Экспресс дня + Трекер 🚀")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
-# Ваши предустановленные данные Telegram
 default_tg_token = "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU"
 default_tg_chat_id = "500635733"
 
@@ -117,13 +116,11 @@ with tab3:
                         if "PENDING" in res_upper:
                             continue
 
-                        # Определяем статус каждого маркета
                         item["status_pick"] = "✅" if "ИСХОД: WIN" in res_upper or "WIN" in res_upper.split("ИСХОД")[-1].split("\n")[0] else "❌"
                         item["status_total"] = "✅" if "ТОТАЛ: WIN" in res_upper else "❌"
                         item["status_corners"] = "✅" if "УГЛОВЫЕ: WIN" in res_upper else "❌"
                         item["overall_status"] = "🎯 Завершено"
 
-                        # Пересобираем текст сообщения для Telegram с актуальными маркетами
                         updated_msg_text = (
                             f"⚽ *Прогноз на матч: {match_name}*\n\n"
                             f"🎯 *Исход/Фора:* `{pick}` [{item['status_pick']}]\n"
@@ -234,6 +231,7 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 real_fbref = get_fbref_data(match)
                 real_oddsportal = get_oddsportal_dropping_odds(match)
 
+                # Добавлено обязательное поле РАЗБОР в промпт
                 analysis_prompt = f"""
                 Ты профессиональный спортивный аналитик. Сделай глубокий прогноз для матча: {match}.
                 Учитывай фактор поля и погоду.
@@ -251,7 +249,7 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 УГЛОВЫЕ: [Ставка на угловые]
                 УВЕРЕННОСТЬ: [Оценка по 10-ти бальной шкале строго в формате X/10, например: 9.5/10 или 10/10]
                 ПОГОДА_ПОЛЕ: [Краткий учет фактора поля и погоды]
-                РАЗБОР: [Обоснование ставки]
+                РАЗБОР: [Развернутое обоснование ставки и аналитика матча в 2-3 предложениях]
                 """
 
                 try:
@@ -263,7 +261,7 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                     total_val = parsed_data.get('ТОТАЛ', '—')
                     corners_val = parsed_data.get('УГЛОВЫЕ', '—')
                     weather_val = parsed_data.get('ПОГОДА_ПОЛЕ', '—')
-                    review_val = parsed_data.get('РАЗБОР', '—')
+                    review_val = parsed_data.get('РАЗБОР', parsed_data.get('РАЗБОР:', 'Анализ завершен.'))
                     
                     conf_numeric = 0.0
                     try:
@@ -288,7 +286,6 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                         st.info(f"🏟️ **Погода и поле:** {weather_val}")
                         st.success(f"**📋 Разбор:**\n\n{review_val}")
 
-                    # Текст с разделенными маркетами статусов для каждого маркета
                     tg_message_text = (
                         f"⚽ *Прогноз на матч: {match}*\n\n"
                         f"🎯 *Исход/Фора:* `{pick_val}` [⏳]\n"
