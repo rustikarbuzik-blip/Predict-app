@@ -43,9 +43,12 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
+    # Актуальные модели согласно требованиям API Google
     candidate_models = [
-        'gemini-2.0-flash',
-        'models/gemini-2.0-flash'
+        'gemini-3.6-flash',
+        'models/gemini-3.6-flash',
+        'gemini-3.0-flash',
+        'models/gemini-3.0-flash'
     ]
     last_error = ""
     for model_name in candidate_models:
@@ -100,7 +103,7 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
                 
-                time.sleep(2)
+                time.sleep(3)
 
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
