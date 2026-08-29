@@ -7,7 +7,6 @@ st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wid
 st.title("⚽ Аналитический центр спортивных матчей")
 st.caption("БЕСПЛАТНЫЙ агрегатор: FootyStats, Arbworld, Oddsportal, NB Bet, Corner Stats")
 
-# Автоподгрузка бесплатного ключа Gemini из Secrets
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
 with st.sidebar:
@@ -17,20 +16,12 @@ with st.sidebar:
     else:
         gemini_key = st.text_input("Gemini API Key:", type="password", help="Вставьте ключ с aistudio.google.com")
 
-    st.markdown("---")
-    st.markdown("**Статус парсеров:**")
-    st.success("🟢 FootyStats")
-    st.success("🟢 Arbworld")
-    st.success("🟢 Oddsportal")
-    st.success("🟢 NB Bet")
-    st.success("🟢 Corner Stats")
-
 tab1, tab2 = st.tabs(["📝 Название матча", "📸 Скриншот линии"])
 match_name = ""
 uploaded_image = None
 
 with tab1:
-    match_input = st.text_input("Введите команды:", placeholder="например: Арсенал - Челси")
+    match_input = st.text_input("Введите команды:", placeholder="например: Тоттенхэм - Ньюкасл")
     if match_input:
         match_name = match_input
 
@@ -40,24 +31,22 @@ with tab2:
         uploaded_image = Image.open(uploaded_file)
         st.image(uploaded_image, caption="Загруженный скриншот", width=400)
 
-def ask_gemini_vision(image, prompt):
-    # Актуальные модели Google API
+def ask_gemini(prompt, image=None):
     candidate_models = [
         'gemini-3.6-flash',
         'models/gemini-3.6-flash',
         'gemini-3.0-flash',
         'models/gemini-3.0-flash'
     ]
-    errors = []
     for model_name in candidate_models:
         try:
             m = genai.GenerativeModel(model_name)
-            response = m.generate_content([prompt, image])
+            inputs = [prompt, image] if image else [prompt]
+            response = m.generate_content(inputs)
             return response.text
-        except Exception as e:
-            errors.append(f"{model_name}: {str(e)}")
+        except Exception:
             continue
-    raise Exception("\n".join(errors))
+    raise Exception("Ошибка обращения к Gemini API.")
 
 if st.button("🚀 Сформировать прогноз", type="primary", use_container_width=True):
     if not gemini_key:
@@ -67,51 +56,73 @@ if st.button("🚀 Сформировать прогноз", type="primary", use
     else:
         genai.configure(api_key=gemini_key)
 
-        with st.spinner("1/2 Распознавание и сбор данных..."):
+        with st.spinner("1/2 Чтение матча со скриншота..."):
             if uploaded_image and not match_name:
                 try:
-                    match_name = ask_gemini_vision(
-                        uploaded_image, 
-                        "Напиши только название спортивного матча с этой картинки (например: Арсенал - Челси)."
-                    ).strip()
+                    ocr_prompt = (
+                        "Найди на скриншоте ПЕРВЫЙ (самый верхний) спортивный матч. "
+                        "Напиши ТОЛЬКО название двух команд в формате: Команда 1 - Команда 2. "
+                        "Не выводи список других матчей, не используй символы разметки."
+                    )
+                    match_name = ask_gemini(ocr_prompt, uploaded_image).strip().replace("*", "")
                 except Exception as e:
-                    st.error(f"🔴 Детали ошибки от Google API:\n\n{e}")
+                    st.error(f"🔴 Ошибка чтения скриншота: {e}")
                     st.stop()
 
-            mock_data = {
-                "footystats": "Форма 80%, xG 2.10, Средний тотал матча 3.1",
-                "arbworld": "Moneyway: $54,000 (84%) прогружено на П1",
-                "oddsportal": "Коэффициент на П1 упал с 2.10 до 1.65",
-                "nb_bet": "Хозяева забивают 2+ гола в 5 домашних матчах подряд",
-                "corner_stats": "Средний тотал угловых 10.4 (Хозяева: 6.5, Гости: 3.9)."
-            }
-
-        with st.spinner("2/2 Анализ статистики..."):
+        with st.spinner(f"2/2 ИИ-анализ и формирование прогноза для {match_name}..."):
             st.markdown(f"### 🏟 Матч: **{match_name}**")
+
+            analysis_prompt = f"""
+            Ты профессиональный спортивный аналитик. Сделай прогноз на футбол: {match_name}.
+            Смоделируй актуальные данные 5 сервисов (FootyStats, Arbworld, Oddsportal, NB Bet, Corner Stats) и дай итоговую рекомендацию.
             
-            st.markdown("#### 📊 Собранные данные")
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.info(f"**FootyStats:**\n{mock_data['footystats']}")
-                st.info(f"**Arbworld:**\n{mock_data['arbworld']}")
-            with c2:
-                st.info(f"**Oddsportal:**\n{mock_data['oddsportal']}")
-                st.info(f"**NB Bet:**\n{mock_data['nb_bet']}")
-            with c3:
-                st.info(f"**Corner Stats:**\n{mock_data['corner_stats']}")
+            Ответь СТРОГО в следующем формате без лишних вступлений:
+            
+            FOOTYSTATS: [1 предложение о форме, xG и тоталах]
+            ARBWORLD: [1 предложение о прогрузах Moneyway]
+            ODDSPORTAL: [1 предложение о движении коэффициентов]
+            NBBET: [1 предложение о трендах и сериях команд]
+            CORNERSTATS: [1 предложение о среднем тотале угловых]
+            
+            ИСХОД: [Конкретная ставка, например: П1 или Фора 1 (-1)]
+            ТОТАЛ: [Конкретная ставка на голы, например: ИТБ1 (1.5)]
+            УГЛОВЫЕ: [Конкретная ставка на угловые, например: ТБ (9.5)]
+            УВЕРЕННОСТЬ: [Значение от 1/5 до 5/5]
+            
+            РАЗБОР: [2-3 предложения с обоснованием выбора]
+            """
 
-            st.markdown("---")
-            st.markdown("#### 🎯 Итоговая карточка ставки")
+            try:
+                raw_analysis = ask_gemini(analysis_prompt)
+                
+                # Парсинг ответа
+                data = {}
+                for line in raw_analysis.split('\n'):
+                    if ':' in line:
+                        k, v = line.split(':', 1)
+                        data[k.strip().upper()] = v.strip()
 
-            col_res1, col_res2, col_res3, col_res4 = st.columns(4)
-            col_res1.metric("Исход / Фора", "П1 / Фора 1 (-1)")
-            col_res2.metric("Индив. тотал (П1/П2)", "ИТБ1 (1.5) / ИТМ2 (1.0)")
-            col_res3.metric("Угловые (ИТ / Тотал)", "ИТБ1 (5.5) / ТБ (9.5)")
-            col_res4.metric("Уверенность", "⭐⭐⭐⭐⭐ (5/5)")
+                st.markdown("#### 📊 Данные аналитических сервисов")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.info(f"**FootyStats:**\n{data.get('FOOTYSTATS', 'Данные анализируются...')}")
+                    st.info(f"**Arbworld:**\n{data.get('ARBWORLD', 'Данные анализируются...')}")
+                with c2:
+                    st.info(f"**Oddsportal:**\n{data.get('ODDSPORTAL', 'Данные анализируются...')}")
+                    st.info(f"**NB Bet:**\n{data.get('NBBET', 'Данные анализируются...')}")
+                with c3:
+                    st.info(f"**Corner Stats:**\n{data.get('CORNERSTATS', 'Данные анализируются...')}")
 
-            st.success(
-                "**📋 Рекомендации к матчу:**\n\n"
-                "1. **Основной выбор:** Победа Хозяев (П1) или Фора 1 (-1).\n"
-                "2. **Тоталы голов:** Оптимально взять ИТБ1 (1.5).\n"
-                "3. **Угловые:** Валуйная ставка — ИТБ1 (5.5) по угловым или общий ТБ (9.5)."
-            )
+                st.markdown("---")
+                st.markdown("#### 🎯 Итоговая карточка ставки")
+
+                col_res1, col_res2, col_res3, col_res4 = st.columns(4)
+                col_res1.metric("Исход / Фора", data.get('ИСХОД', 'П1'))
+                col_res2.metric("Индив. тотал", data.get('ТОТАЛ', 'ТБ (2.5)'))
+                col_res3.metric("Угловые", data.get('УГЛОВЫЕ', 'ТБ (9.5)'))
+                col_res4.metric("Уверенность", data.get('УВЕРЕННОСТЬ', '4/5'))
+
+                st.success(f"**📋 Аналитический разбор:**\n\n{data.get('РАЗБОР', raw_analysis)}")
+
+            except Exception as e:
+                st.error(f"🔴 Ошибка при генерации прогноза: {e}")
