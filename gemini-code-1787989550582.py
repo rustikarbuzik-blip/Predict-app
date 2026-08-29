@@ -190,7 +190,7 @@ def ask_vsegpt(prompt):
     response = client.chat.completions.create(
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.25,
+        temperature=0.35,
         max_tokens=350
     )
     return response.choices[0].message.content
@@ -253,7 +253,7 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
 with tab1:
     match_input = st.text_area(
         "Введите список матчей (каждый матч с новой строки):", 
-        placeholder="Севилья - Атлетико\nЛорьян - Труа\nБрест - Тулуза\nАвеллино - Виченца",
+        placeholder="Интер Майами - Монреаль\nНэшвилл - Цинциннати\nСевилья - Атлетико\nЛорьян - Труа",
         height=150
     )
     
@@ -277,37 +277,40 @@ with tab1:
                     raw_fbref = get_fbref_data(match)
                     raw_odds = get_oddsportal_dropping_odds(match)
 
-                    real_arbworld = str(raw_arb)[:120] if raw_arb else "Нейтрально"
-                    real_corners = str(raw_corn)[:120] if raw_corn else "Стандартная линия"
-                    real_footystats = str(raw_footy)[:120] if raw_footy else "Данные по лиге"
-                    real_fbref = str(raw_fbref)[:120] if raw_fbref else "Стандартный xG"
-                    real_oddsportal = str(raw_odds)[:120] if raw_odds else "Линия стабильна"
+                    real_arbworld = str(raw_arb)[:120] if raw_arb else "Линия рынка в норме"
+                    real_corners = str(raw_corn)[:120] if raw_corn else "Базовая статистика"
+                    real_footystats = str(raw_footy)[:120] if raw_footy else "Расчет по стилю лиги"
+                    real_fbref = str(raw_fbref)[:120] if raw_fbref else "Обычные показатели"
+                    real_oddsportal = str(raw_odds)[:120] if raw_odds else "Котировки без скачков"
 
-                    # 🎯 ПРОМПТ С НОВЫМ ПОРЯДКОМ ВЫВОДА
+                    # 🎯 АНТИ-ШАБЛОННЫЙ ПРОМПТ С ЖЕСТКИМ ЗАПРЕТОМ ГАЛЛЮЦИНАЦИЙ
                     analysis_prompt = f"""
-                    Ты профессиональный спортивный аналитик. Сделай глубокий разбор матча: "{match}".
+                    Ты профессиональный каппер. Проведи объективный разбор конкретного футбольного матча: "{match}".
                     Время запроса: {current_time_str} (Уфа, UTC+5).
 
                     ВХОДНЫЕ ДАННЫЕ:
-                    - Oddsportal (кэфы и движение): {real_oddsportal}
-                    - Arbworld (деньги / Moneyway): {real_arbworld}
+                    - Oddsportal (кэфы): {real_oddsportal}
+                    - Arbworld (деньги): {real_arbworld}
                     - xG и метрики (FBref / NB Bet): {real_fbref} | {real_footystats}
                     - Угловые: {real_corners}
 
-                    СТРОГИЕ ПРАВИЛА:
-                    1. Запрещено копировать одинаковые шаблоны на все матчи.
-                    2. Выбирай исходы исходя из реального фаворита и специфики чемпионата (низовой/верховой).
-                    3. Оценивай уверенность по шкале от 1 до 5 звезд (⭐, ⭐⭐, ⭐⭐⭐, ⭐⭐⭐⭐, ⭐⭐⭐⭐⭐).
+                    СТРОЖАЙШИЕ ПРАВИЛА:
+                    1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать одинаковые выдуманные цифры "xG 1.75 против 1.15" или "70% против 55%"!
+                    2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО на все матчи подряд ставить «ИТБ(1.5)».
+                    3. Для равных команд, оборонительных клубов или низовых лиг СТРОГО выбирай индивидуальный тотал меньше:
+                       - Например: "[Команда] ИТМ1(1.5)", "[Команда] ИТМ2(1.0)", "[Команда] ИТМ1(1.0)".
+                    4. Если фаворит играет в гостях (или хозяева слабее) — ставь на гостей: Фора 2 (0), Победа 2 или Х2.
+                    5. В «РАЗБОР» пиши факты именно об этих двух командах (их реальная форма, игра в обороне, стиль).
 
                     ВЫДАЙ ОТВЕТ СТРОГО В ТАКОМ ФОРМАТЕ:
                     ВРЕМЯ_МАТЧА: [Дата и время начала по Уфе (UTC+5)]
                     СТАВКА: [*Название команды* фора или победа]
-                    ИТ: [*Название команды* ИТБ(...) или ИТМ(...)]
-                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка с повышенным кэфом, например точный счет, тайм/матч, комбо]
-                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х/Х2, плюсовая фора, ТМ 3.5]
-                    ЛУЧШАЯ_СТАВКА: [Самый надежный и сбалансированный выбор на этот матч]
+                    ИТ: [*Название команды* ИТМ(1.0), ИТМ(1.5), ИТБ(1.0) или ИТБ(1.5)]
+                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка с повышенным кэфом]
+                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х, Х2, фора (+1), ТМ 3.5]
+                    ЛУЧШАЯ_СТАВКА: [Главный взвешенный выбор на этот матч]
                     УВЕРЕННОСТЬ: [От ⭐⭐⭐ до ⭐⭐⭐⭐⭐]
-                    РАЗБОР: [2-3 коротких тезиса без воды: 1) Деньги и кэфы; 2) xG и форма]
+                    РАЗБОР: [2 коротких факта о специфике именно этого противостояния]
                     """
 
                     try:
@@ -323,7 +326,6 @@ with tab1:
                         confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '⭐⭐⭐⭐')
                         review_val = parsed_data.get('РАЗБОР', 'Анализ завершен.')
                         
-                        # Добавляем в экспресс матчи с максимальной уверенностью (5 звезд)
                         if confidence_str.count('⭐') >= 5:
                             accumulated_express_items.append({
                                 "match": match,
@@ -332,7 +334,6 @@ with tab1:
                                 "confidence": confidence_str
                             })
 
-                        # Отображение в Streamlit
                         with st.expander(f"⚽ {i}. {match} | 🕒 {match_time_ufa}", expanded=(i == 1)):
                             st.caption(f"🕒 **Начало:** {match_time_ufa} | **Уверенность:** {confidence_str}")
                             st.markdown(f"🎯 **Ставка:** `{bet_main}`")
@@ -342,7 +343,6 @@ with tab1:
                             st.success(f"🔥 **Лучшая ставка на этот матч:** `{best_pick}`")
                             st.info(f"📋 **Разбор метрик:**\n\n{review_val}")
 
-                        # Форматирование для Telegram
                         tg_message_text = (
                             f"⚽ <b>Прогноз на матч: {escape_html(match)}</b>\n"
                             f"🕒 <b>Начало:</b> <code>{escape_html(match_time_ufa)}</code>\n\n"
@@ -400,6 +400,7 @@ with tab1:
 # ==============================================================================
 # 📊 ВКЛАДКА 2: ИСТОРИЯ
 # ==============================================================================
+
 
 with tab2:
     st.subheader("📊 История прогнозов (База данных)")
@@ -464,7 +465,7 @@ with tab2:
                             f"🛡️ <b>Осторожная ставка:</b> <code>{escape_html(b_caut)}</code> [{item['status_cautious']}]\n"
                             f"🔥 <b>Лучшая ставка на этот матч:</b> <code>{escape_html(b_best)}</code> [{item['status_best_pick']}]\n"
                             f"⭐ <b>Уверенность:</b> {item['confidence']}\n\n"
-                            f"📝 <b>Разбор метрик:</b>\n{escape_html(item['review'])}"
+                            f"📝 <b>Разбор метрик:</b>\n{escape_html(review_val)}"
                         )
                         
                         edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
