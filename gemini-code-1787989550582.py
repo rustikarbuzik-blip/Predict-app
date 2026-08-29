@@ -3,9 +3,8 @@ import google.generativeai as genai
 from PIL import Image
 import time
 import requests
-import json
-import os
 from datetime import datetime
+import sqlite3
 from parsers import (
     get_arbworld_moneyway, 
     get_corner_stats_data, 
@@ -17,7 +16,7 @@ from parsers import (
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Экспресс дня + Трекер 🚀")
+st.caption("Агрегатор данных + Облачная база данных SQLite 🚀")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -27,20 +26,108 @@ default_tg_chat_id = "500635733"
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", default_tg_token)
 tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", default_tg_chat_id)
 
-HISTORY_FILE = "match_history.json"
+# --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ SQLite ---
+def init_db():
+    conn = sqlite3.connect("match_history.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match TEXT,
+            pick TEXT,
+            total TEXT,
+            corners TEXT,
+            confidence TEXT,
+            weather TEXT,
+            review TEXT,
+            message_id INTEGER,
+            overall_status TEXT,
+            status_pick TEXT,
+            status_total TEXT,
+            status_corners TEXT,
+            date TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_db()
 
 def load_history():
-    if os.path.exists(HISTORY_FILE):
-        try:
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return []
-    return []
+    conn = sqlite3.connect("match_history.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("SELECT match, pick, total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_corners, date FROM history")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    history = []
+    for row in rows:
+        history.append({
+            "match": row[0],
+            "pick": row[1],
+            "total": row[2],
+            "corners": row[3],
+            "confidence": row[4],
+            "weather": row[5],
+            "review": row[6],
+            "message_id": int(row[7]) if row[7] else 0,
+            "overall_status": row[8],
+            "status_pick": row[9],
+            "status_total": row[10],
+            "status_corners": row[11],
+            "date": row[12]
+        })
+    return history
 
-def save_history(history_data):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history_data, f, ensure_ascii=False, indent=4)
+def save_match_to_db(item):
+    conn = sqlite3.connect("match_history.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO history (match, pick, total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_corners, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        item.get("match"),
+        item.get("pick"),
+        item.get("total"),
+        item.get("corners"),
+        item.get("confidence"),
+        item.get("weather"),
+        item.get("review"),
+        item.get("message_id"),
+        item.get("overall_status", "⏳ Ожидание"),
+        item.get("status_pick", "⏳"),
+        item.get("status_total", "⏳"),
+        item.get("status_corners", "⏳"),
+        item.get("date")
+    ))
+    conn.commit()
+    conn.close()
+
+def update_history_in_db(history_data):
+    conn = sqlite3.connect("match_history.db", check_same_thread=False)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM history")
+    for item in history_data:
+        cursor.execute('''
+            INSERT INTO history (match, pick, total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_corners, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            item.get("match"),
+            item.get("pick"),
+            item.get("total"),
+            item.get("corners"),
+            item.get("confidence"),
+            item.get("weather"),
+            item.get("review"),
+            item.get("message_id"),
+            item.get("overall_status"),
+            item.get("status_pick"),
+            item.get("status_total"),
+            item.get("status_corners"),
+            item.get("date")
+        ))
+    conn.commit()
+    conn.close()
 
 with st.sidebar:
     st.header("⚙️ Настройки")
@@ -53,7 +140,7 @@ with st.sidebar:
     st.header("🤖 Telegram Бот")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
-    st.info("💡 Бот должен иметь возможность редактировать сообщения.")
+    st.success("🟢 Локальная БД SQLite активна!")
 
 tab1, tab2, tab3 = st.tabs(["📝 Название матча(ей)", "📸 Скриншот линии", "📋 История и результаты"])
 matches_list = []
@@ -74,11 +161,11 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 with tab3:
-    st.subheader("📊 История прогнозов и автообновление маркеров в Telegram")
+    st.subheader("📊 История прогнозов (База данных)")
     history = load_history()
     
     if not history:
-        st.info("История пуста. Сформируйте прогнозы, и они автоматически появятся здесь.")
+        st.info("История пуста. Сформируйте прогнозы.")
     else:
         if st.button("🔄 Проверить результаты по каждому маркету"):
             with st.spinner("Проверяем фактические итоги матчей и обновляем Telegram..."):
@@ -111,8 +198,8 @@ with tab3:
                     try:
                         m = genai.GenerativeModel('gemini-2.5-flash')
                         res = m.generate_content(check_prompt).text.strip()
-                        
                         res_upper = res.upper()
+                        
                         if "PENDING" in res_upper:
                             continue
 
@@ -132,12 +219,11 @@ with tab3:
                         )
                         
                         edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
-                        item["original_text"] = updated_msg_text
                         updated_count += 1
                     except Exception as e:
                         continue
                 
-                save_history(history)
+                update_history_in_db(history)
                 st.success(f"Проверка завершена! Обновлено матчей: {updated_count}")
         
         for idx, h_item in enumerate(reversed(history), 1):
@@ -145,7 +231,7 @@ with tab3:
                 st.write(f"**Исход:** {h_item['pick']} [{h_item.get('status_pick', '⏳')}]")
                 st.write(f"**Тотал:** {h_item['total']} [{h_item.get('status_total', '⏳')}]")
                 st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
-                st.code(h_item['original_text'], language="markdown")
+                st.write(f"**Разбор:** {h_item['review']}")
 
 def ask_gemini(prompt, image=None):
     candidate_models = ['gemini-2.5-flash', 'models/gemini-2.5-flash', 'gemini-3.5-flash', 'models/gemini-3.5-flash']
@@ -160,7 +246,7 @@ def ask_gemini(prompt, image=None):
                 last_error = str(e)
                 time.sleep(4 if ("429" in str(e) or "Quota" in str(e)) else 2)
                 continue
-    raise Exception(f"Превышен лимит запросов (Quota 429). Детали: {last_error}")
+    raise Exception(f"Превышен лимит запросов: {last_error}")
 
 def parse_match_block(block_text):
     data = {}
@@ -219,7 +305,6 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
         st.success(f"Найдено матчей для анализа: **{len(matches_list)}**")
 
         accumulated_express_items = []
-        history_data = load_history()
 
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
@@ -231,7 +316,6 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 real_fbref = get_fbref_data(match)
                 real_oddsportal = get_oddsportal_dropping_odds(match)
 
-                # Добавлено обязательное поле РАЗБОР в промпт
                 analysis_prompt = f"""
                 Ты профессиональный спортивный аналитик. Сделай глубокий прогноз для матча: {match}.
                 Учитывай фактор поля и погоду.
@@ -261,7 +345,7 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                     total_val = parsed_data.get('ТОТАЛ', '—')
                     corners_val = parsed_data.get('УГЛОВЫЕ', '—')
                     weather_val = parsed_data.get('ПОГОДА_ПОЛЕ', '—')
-                    review_val = parsed_data.get('РАЗБОР', parsed_data.get('РАЗБОР:', 'Анализ завершен.'))
+                    review_val = parsed_data.get('РАЗБОР', 'Анализ завершен.')
                     
                     conf_numeric = 0.0
                     try:
@@ -299,7 +383,8 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                     success, msg, msg_id = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
                     if success and msg_id:
                         st.toast(f"📤 Прогноз по матчу {match} отправлен в Telegram!", icon="✅")
-                        history_data.append({
+                        
+                        match_item = {
                             "match": match,
                             "pick": pick_val,
                             "total": total_val,
@@ -307,21 +392,19 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                             "confidence": confidence_str,
                             "weather": weather_val,
                             "review": review_val,
-                            "original_text": tg_message_text,
                             "message_id": msg_id,
                             "overall_status": "⏳ Ожидание",
                             "status_pick": "⏳",
                             "status_total": "⏳",
                             "status_corners": "⏳",
                             "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-                        })
+                        }
+                        save_match_to_db(match_item)
                     else:
                         st.error(f"Не удалось отправить в Telegram: {msg}")
 
                 except Exception as e:
                     st.error(f"🔴 Ошибка анализа матча {match}: {e}")
-
-        save_history(history_data)
 
         if len(accumulated_express_items) >= 1:
             with st.spinner("3/3 Формирование ТОП-Экспресса дня..."):
