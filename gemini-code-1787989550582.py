@@ -15,11 +15,11 @@ try:
         get_oddsportal_dropping_odds
     )
 except ImportError:
-    def get_arbworld_moneyway(m): return ""
-    def get_corner_stats_data(m): return ""
-    def get_footystats_data(m): return ""
-    def get_fbref_data(m): return ""
-    def get_oddsportal_dropping_odds(m): return ""
+    def get_arbworld_moneyway(m): return None
+    def get_corner_stats_data(m): return None
+    def get_footystats_data(m): return None
+    def get_fbref_data(m): return None
+    def get_oddsportal_dropping_odds(m): return None
 
 st.set_page_config(
     page_title="Match Analytics AI Pro", 
@@ -175,7 +175,7 @@ with st.sidebar:
 tab1, tab2 = st.tabs(["📝 Ввод матчей и анализ", "📋 История и результаты"])
 
 # ==============================================================================
-# 🧠 ОБРАЩЕНИЕ К VSEGPT
+# 🧠 ВЫЗОВ НЕЙРОСЕТИ
 # ==============================================================================
 
 def ask_vsegpt(prompt):
@@ -190,7 +190,7 @@ def ask_vsegpt(prompt):
     response = client.chat.completions.create(
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.35,
+        temperature=0.3,
         max_tokens=350
     )
     return response.choices[0].message.content
@@ -252,9 +252,15 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
 
 with tab1:
     match_input = st.text_area(
-        "Введите список матчей (каждый матч с новой строки):", 
-        placeholder="Интер Майами - Монреаль\nНэшвилл - Цинциннати\nСевилья - Атлетико\nЛорьян - Труа",
-        height=150
+        "1. Введите список матчей (каждый матч с новой строки):", 
+        placeholder="Портленд Тимберс - Остин ФК\nКолорадо Рэпидс - Реал Солт-Лейк\nСан-Диего - Лос-Анджелес Гэлакси",
+        height=130
+    )
+    
+    manual_metrics = st.text_area(
+        "2. (Опционально) Вставьте скопированные данные/статистику:",
+        placeholder="Сюда можно вставить текст или цифры с Flashscore / Arbworld / NB Bet для строгого расчета...",
+        height=80
     )
     
     if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
@@ -277,40 +283,41 @@ with tab1:
                     raw_fbref = get_fbref_data(match)
                     raw_odds = get_oddsportal_dropping_odds(match)
 
-                    real_arbworld = str(raw_arb)[:120] if raw_arb else "Линия рынка в норме"
-                    real_corners = str(raw_corn)[:120] if raw_corn else "Базовая статистика"
-                    real_footystats = str(raw_footy)[:120] if raw_footy else "Расчет по стилю лиги"
-                    real_fbref = str(raw_fbref)[:120] if raw_fbref else "Обычные показатели"
-                    real_oddsportal = str(raw_odds)[:120] if raw_odds else "Котировки без скачков"
+                    # Сборка доступных фактов
+                    available_data = []
+                    if raw_odds: available_data.append(f"Oddsportal: {raw_odds}")
+                    if raw_arb: available_data.append(f"Arbworld: {raw_arb}")
+                    if raw_footy: available_data.append(f"FootyStats: {raw_footy}")
+                    if raw_fbref: available_data.append(f"FBref: {raw_fbref}")
+                    if raw_corn: available_data.append(f"Corners: {raw_corn}")
+                    if manual_metrics.strip(): available_data.append(f"Пользовательские данные: {manual_metrics.strip()[:400]}")
 
-                    # 🎯 АНТИ-ШАБЛОННЫЙ ПРОМПТ С ЖЕСТКИМ ЗАПРЕТОМ ГАЛЛЮЦИНАЦИЙ
+                    metrics_summary = "\n".join(available_data) if available_data else "Автоматические данные недоступны. Оцени по реальному профилю лиги и силе клубов."
+
                     analysis_prompt = f"""
-                    Ты профессиональный каппер. Проведи объективный разбор конкретного футбольного матча: "{match}".
+                    Ты спортивный аналитик и каппер. Сделай независимый объективный расчет на матч: "{match}".
                     Время запроса: {current_time_str} (Уфа, UTC+5).
 
-                    ВХОДНЫЕ ДАННЫЕ:
-                    - Oddsportal (кэфы): {real_oddsportal}
-                    - Arbworld (деньги): {real_arbworld}
-                    - xG и метрики (FBref / NB Bet): {real_fbref} | {real_footystats}
-                    - Угловые: {real_corners}
+                    ВХОДЯЩИЕ ФАКТЫ И МЕТРИКИ:
+                    {metrics_summary}
 
-                    СТРОЖАЙШИЕ ПРАВИЛА:
-                    1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО использовать одинаковые выдуманные цифры "xG 1.75 против 1.15" или "70% против 55%"!
-                    2. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО на все матчи подряд ставить «ИТБ(1.5)».
-                    3. Для равных команд, оборонительных клубов или низовых лиг СТРОГО выбирай индивидуальный тотал меньше:
-                       - Например: "[Команда] ИТМ1(1.5)", "[Команда] ИТМ2(1.0)", "[Команда] ИТМ1(1.0)".
-                    4. Если фаворит играет в гостях (или хозяева слабее) — ставь на гостей: Фора 2 (0), Победа 2 или Х2.
-                    5. В «РАЗБОР» пиши факты именно об этих двух командах (их реальная форма, игра в обороне, стиль).
+                    ПРАВИЛА БАЛАНСА И ОБЪЕКТИВНОСТИ:
+                    1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО повторять одинаковый маркет на все матчи (нельзя везде ставить ИТБ или везде ставить ИТМ).
+                    2. Учитывай специфику турнира:
+                       - Верховые лиги (MLS, Бундеслига, Нидерланды): базовые тренды это ИТБ(1.5), Обе Забьют, ТБ 2.5, форы фаворитов.
+                       - Низовые лиги (Лига 2 Франция, Серия B, Ла Лига): базовые тренды это ИТМ(1.0/1.5), ТМ 2.5, плюсовые форы.
+                    3. Исход и ИТ выбирай строго под реальный стиль конкретно играющих команд.
+                    4. В РАЗБОРЕ укажи реальный стиль игры этих команд (атакующий/оборонительный, результативность в сезоне).
 
                     ВЫДАЙ ОТВЕТ СТРОГО В ТАКОМ ФОРМАТЕ:
                     ВРЕМЯ_МАТЧА: [Дата и время начала по Уфе (UTC+5)]
                     СТАВКА: [*Название команды* фора или победа]
-                    ИТ: [*Название команды* ИТМ(1.0), ИТМ(1.5), ИТБ(1.0) или ИТБ(1.5)]
-                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка с повышенным кэфом]
-                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х, Х2, фора (+1), ТМ 3.5]
+                    ИТ: [*Название команды* ИТБ(1.5), ИТБ(1.0), ИТМ(1.5) или ИТМ(1.0)]
+                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка с высоким коэффициентом]
+                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х, Х2, плюсовая фора, ТМ/ТБ]
                     ЛУЧШАЯ_СТАВКА: [Главный взвешенный выбор на этот матч]
                     УВЕРЕННОСТЬ: [От ⭐⭐⭐ до ⭐⭐⭐⭐⭐]
-                    РАЗБОР: [2 коротких факта о специфике именно этого противостояния]
+                    РАЗБОР: [2 кратких тезиса по реальному игровому стилю и результативности команд]
                     """
 
                     try:
@@ -401,7 +408,6 @@ with tab1:
 # 📊 ВКЛАДКА 2: ИСТОРИЯ
 # ==============================================================================
 
-
 with tab2:
     st.subheader("📊 История прогнозов (База данных)")
     history = load_history()
@@ -465,7 +471,7 @@ with tab2:
                             f"🛡️ <b>Осторожная ставка:</b> <code>{escape_html(b_caut)}</code> [{item['status_cautious']}]\n"
                             f"🔥 <b>Лучшая ставка на этот матч:</b> <code>{escape_html(b_best)}</code> [{item['status_best_pick']}]\n"
                             f"⭐ <b>Уверенность:</b> {item['confidence']}\n\n"
-                            f"📝 <b>Разбор метрик:</b>\n{escape_html(review_val)}"
+                            f"📝 <b>Разбор метрик:</b>\n{escape_html(item['review'])}"
                         )
                         
                         edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
