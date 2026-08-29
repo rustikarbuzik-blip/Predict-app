@@ -14,11 +14,11 @@ from parsers import (
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Telegram & Weather AI")
+st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Авто-отправка в Telegram")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
-# Предустановленные данные Telegram (вшиты по вашему запросу)
+# Ваши предустановленные данные Telegram
 default_tg_token = "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU"
 default_tg_chat_id = "500635733"
 
@@ -36,6 +36,7 @@ with st.sidebar:
     st.header("🤖 Telegram Бот")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
+    st.info("💡 Не забудьте нажать /start в вашем боте в Telegram, чтобы он мог присылать сообщения.")
 
 tab1, tab2 = st.tabs(["📝 Название матча(ей)", "📸 Скриншот линии"])
 matches_list = []
@@ -44,7 +45,7 @@ uploaded_image = None
 with tab1:
     match_input = st.text_area(
         "Введите матчи (каждый с новой строки):", 
-        placeholder="Тоттенхэм - Ньюкасл\nКовентри Сити - Халл"
+        placeholder="Факел - Зенит\nТоттенхэм - Ньюкасл"
     )
     if match_input.strip():
         matches_list = [m.strip() for m in match_input.strip().split("\n") if m.strip()]
@@ -102,7 +103,7 @@ def send_telegram_message(text, token, chat_id):
     except Exception as e:
         return False, f"Ошибка соединения: {e}"
 
-if st.button("🚀 Сформировать прогнозы по всем матчам", type="primary", use_container_width=True):
+if st.button("🚀 Сформировать и отправить прогнозы", type="primary", use_container_width=True):
     if not gemini_key:
         st.error("Укажите Gemini API Key в Secrets или в левом меню!")
     elif not matches_list and not uploaded_image:
@@ -164,6 +165,7 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
                     raw_response = ask_gemini(analysis_prompt)
                     parsed_data = parse_match_block(raw_response)
 
+                    # Отображение в интерфейсе Streamlit
                     with st.expander(f"⚽ {i}. {match}", expanded=(i == 1)):
                         st.markdown("#### 📊 Данные аналитических сервисов")
                         c1, c2, c3 = st.columns(3)
@@ -188,23 +190,22 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
                         st.info(f"🏟️ **Погода и фактор поля:** {parsed_data.get('ПОГОДА_ПОЛЕ', 'Учитывается стандартный домашний фактор.')}")
                         st.success(f"**📋 Аналитический разбор:**\n\n{parsed_data.get('РАЗБОР', 'Анализ завершен.')}")
 
-                        # Кнопка отправки в Telegram для каждого матча
-                        tg_message_text = (
-                            f"⚽ *Прогноз на матч: {match}*\n\n"
-                            f"🎯 *Исход/Фора:* `{parsed_data.get('ИСХОД', '—')}`\n"
-                            f"📈 *Тотал:* `{parsed_data.get('ТОТАЛ', '—')}`\n"
-                            f"🚩 *Угловые:* `{parsed_data.get('УГЛОВЫЕ', '—')}`\n"
-                            f"⭐ *Уверенность:* `{parsed_data.get('УВЕРЕННОСТЬ', '—')}`\n"
-                            f"🏟️ *Погода/Поле:* {parsed_data.get('ПОГОДА_ПОЛЕ', '—')}\n\n"
-                            f"📝 *Разбор:* {parsed_data.get('РАЗБОР', '—')}"
-                        )
+                    # АВТОМАТИЧЕСКАЯ ОТПРАВКА В TELEGRAM СРАЗУ ПОСЛЕ АНАЛИЗА
+                    tg_message_text = (
+                        f"⚽ *Прогноз на матч: {match}*\n\n"
+                        f"🎯 *Исход/Фора:* `{parsed_data.get('ИСХОД', '—')}`\n"
+                        f"📈 *Тотал:* `{parsed_data.get('ТОТАЛ', '—')}`\n"
+                        f"🚩 *Угловые:* `{parsed_data.get('УГЛОВЫЕ', '—')}`\n"
+                        f"⭐ *Уверенность:* `{parsed_data.get('УВЕРЕННОСТЬ', '—')}`\n"
+                        f"🏟️ *Погода/Поле:* {parsed_data.get('ПОГОДА_ПОЛЕ', '—')}\n\n"
+                        f"📝 *Разбор:* {parsed_data.get('РАЗБрон', parsed_data.get('РАЗБОР', '—'))}"
+                    )
 
-                        if st.button(f"📤 Отправить прогноз в Telegram #{i}", key=f"tg_btn_{i}"):
-                            success, msg = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
-                            if success:
-                                st.success(msg)
-                            else:
-                                st.error(msg)
+                    success, msg = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
+                    if success:
+                        st.toast(f"📤 Прогноз по матчу «{match» отправлен в Telegram!", icon="✅")
+                    else:
+                        st.error(f"Не удалось отправить в Telegram матча {match}: {msg}")
 
                 except Exception as e:
                     st.error(f"🔴 Ошибка анализа матча {match}: {e}")
