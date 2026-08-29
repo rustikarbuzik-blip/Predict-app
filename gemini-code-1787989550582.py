@@ -4,11 +4,13 @@ import requests
 import html
 from datetime import datetime, timezone, timedelta
 import sqlite3
+import re
 
 # Импорт парсеров
 try:
     from parsers import (
         get_footystats_data,
+        split_teams,
         get_fbref_data,
         get_corner_stats_data,
         get_arbworld_moneyway,
@@ -16,6 +18,7 @@ try:
     )
 except ImportError:
     def get_footystats_data(m): return None
+    def split_teams(m): return m, "Соперник"
     def get_fbref_data(m): return None
     def get_corner_stats_data(m): return None
     def get_arbworld_moneyway(m): return None
@@ -175,7 +178,7 @@ with st.sidebar:
 tab1, tab2 = st.tabs(["📝 Ввод матчей и анализ", "📋 История и результаты"])
 
 # ==============================================================================
-# 🧠 ОБРАЩЕНИЕ К НЕЙРОСЕТИ
+# 🧠 ВЫЗОВ НЕЙРОСЕТИ И ОЧИСТКА
 # ==============================================================================
 
 def ask_vsegpt(prompt):
@@ -190,12 +193,26 @@ def ask_vsegpt(prompt):
     response = client.chat.completions.create(
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
+        temperature=0.25,
         max_tokens=350
     )
     return response.choices[0].message.content
 
-def parse_match_block(block_text):
+def sanitize_bet_text(text: str, home: str, away: str) -> str:
+    """Принудительно заменяет П1/П2/1Х на реальные имена команд"""
+    if not text: return text
+    res = text
+    res = re.sub(r'\bП1\b', f'{home} победа', res)
+    res = re.sub(r'\bП2\b', f'{away} победа', res)
+    res = re.sub(r'\b1Х\b|\b1X\b', f'{home} 1X', res)
+    res = re.sub(r'\bХ2\b|\bX2\b', f'{away} X2', res)
+    res = re.sub(r'\bИТ1\b|\bИТБ1\b', f'{home} ИТБ', res)
+    res = re.sub(r'\bИТ2\b|\bИТБ2\b', f'{away} ИТБ', res)
+    res = re.sub(r'\bИТМ1\b', f'{home} ИТМ', res)
+    res = re.sub(r'\bИТМ2\b', f'{away} ИТМ', res)
+    return res
+
+def parse_match_block(block_text, home, away):
     data = {}
     lines = block_text.split('\n')
     current_key = None
@@ -209,7 +226,7 @@ def parse_match_block(block_text):
                 'ОСТОРОЖНАЯ_СТАВКА', 'ЛУЧШАЯ_СТАВКА', 'УВЕРЕННОСТЬ', 'РАЗБОР'
             ]:
                 current_key = candidate_key
-                data[current_key] = parts[1].strip()
+                data[current_key] = sanitize_bet_text(parts[1].strip(), home, away)
                 continue
         if current_key == 'РАЗБОР' and line.strip():
             data[current_key] += "\n" + line.strip()
@@ -252,8 +269,8 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
 
 with tab1:
     match_input = st.text_area(
-        "Введите список матчей (каждый матч с новой строки):", 
-        placeholder="Портленд Тимберс - Остин ФК\nКолорадо Рэпидс - Реал Солт-Лейк\nСан-Диего - Лос-Анджелес Гэлакси",
+        "Введите список матчей (желательно через дефис или ' - '):", 
+        placeholder="Seattle Sounders - Chicago Fire\nИнтер Майами - Монреаль\nСевилья - Атлетико",
         height=130
     )
     
@@ -266,44 +283,48 @@ with tab1:
             st.warning("Введите хотя бы один матч в текстовое поле!")
         else:
             current_time_str = now_ufa.strftime('%d.%m.%Y %H:%M')
-            st.success(f"Анализ **{len(matches_list)}** матчей (Время генерации: {current_time_str} по Уфе)")
+            st.success(f"Анализ **{len(matches_list)}** матчей (Время: {current_time_str} по Уфе)")
             accumulated_express_items = []
 
             for i, match in enumerate(matches_list, 1):
-                with st.spinner(f"Анализ матча {i}/{len(matches_list)} ({match})..."):
+                home_team, away_team = split_teams(match)
+                with st.spinner(f"Анализ матча {i}/{len(matches_list)} ({home_team} — {away_team})..."):
                     real_metrics = get_footystats_data(match)
 
                     if real_metrics:
-                        metrics_summary = f"РЕАЛЬНАЯ СТАТИСТИКА ИЗ БАЗЫ OPTA / FOTMOB:\n{real_metrics}"
+                        metrics_summary = f"РЕАЛЬНЫЕ МЕТРИКИ ИЗ БАЗЫ OPTA/FOTMOB:\n{real_metrics}"
                     else:
-                        metrics_summary = "Данные турнирной таблицы недоступны. Оценивай строго по реальному классу клубов."
+                        metrics_summary = "Данные турнирной таблицы недоступны. Оценивай строго по классу клубов."
 
                     analysis_prompt = f"""
-                    Ты спортивный аналитик. Сделай объективный капперский прогноз на матч: "{match}".
+                    Ты спортивный аналитик. Сделай логичный капперский прогноз:
+                    - ХОЗЯЕВА: {home_team}
+                    - ГОСТИ: {away_team}
                     Время запроса: {current_time_str} (Уфа, UTC+5).
 
                     ВХОДНЫЕ ФАКТЫ:
                     {metrics_summary}
 
                     СТРОГИЕ ПРАВИЛА:
-                    1. Опирайся на реальное место в таблице, забитые/пропущенные мячи и текущую форму команд.
-                    2. Не штампуй одинаковые тоталы: если команда забивает мало или идет на серии поражений — выбирай ИТМ(1.0 / 1.5) или плюсовую фору соперника.
-                    3. Если явный фаворит играет в гостях — выбирай П2, Х2 или Ф2(0).
+                    1. Запрещено использовать сокращения П1, П2, 1Х, Х2, ИТ1, ИТ2. Всегда пиши полное имя команды!
+                       - Вместо "П1" пиши "{home_team} победа".
+                       - Вместо "ИТБ1(1.5)" пиши "{home_team} ИТБ(1.5)".
+                    2. Логическое соответствие: Все исходы (Ставка, ИТ, Лучшая ставка) должны строго следовать за фаворитом из твоего разбора.
 
-                    ФОРМАТ ВЫВОДА СТРОГО:
-                    ВРЕМЯ_МАТЧА: [Дата и время по Уфе]
-                    СТАВКА: [*Название* фора или победа]
-                    ИТ: [*Название* ИТБ(1.5), ИТБ(1.0), ИТМ(1.5) или ИТМ(1.0)]
-                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка с высоким коэффициентом]
-                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х, Х2, плюсовая фора, ТМ/ТБ]
-                    ЛУЧШАЯ_СТАВКА: [Главный взвешенный выбор]
+                    ФОРМАТ ВЫВОДА:
+                    ВРЕМЯ_МАТЧА: [Дата и время матча по Уфе]
+                    РАЗБОР: [2 конкретных тезиса по форме команд и их результативности]
+                    СТАВКА: [{home_team} или {away_team} победа / фора(0) / фора(+1)]
+                    ИТ: [{home_team} или {away_team} ИТБ(1.5), ИТБ(1.0), ИТМ(1.5) или ИТМ(1.0)]
+                    БОЛЕЕ_АГРЕССИВНО: [{home_team} или {away_team} победа + тотал]
+                    ОСТОРОЖНАЯ_СТАВКА: [{home_team} 1X или {away_team} X2 или тотал]
+                    ЛУЧШАЯ_СТАВКА: [Главный выбор, согласованный с разбором]
                     УВЕРЕННОСТЬ: [От ⭐⭐⭐ до ⭐⭐⭐⭐⭐]
-                    РАЗБОР: [2 конкретных тезиса по фактической форме и турнирному положению]
                     """
 
                     try:
                         raw_response = ask_vsegpt(analysis_prompt)
-                        parsed_data = parse_match_block(raw_response)
+                        parsed_data = parse_match_block(raw_response, home_team, away_team)
 
                         match_time_ufa = parsed_data.get('ВРЕМЯ_МАТЧА', 'Предстоящий матч')
                         bet_main = parsed_data.get('СТАВКА', '—')
@@ -316,17 +337,17 @@ with tab1:
 
                         if confidence_str.count('⭐') >= 5:
                             accumulated_express_items.append({
-                                "match": match,
+                                "match": f"{home_team} — {away_team}",
                                 "time": match_time_ufa,
                                 "pick": best_pick,
                                 "confidence": confidence_str
                             })
 
-                        with st.expander(f"⚽ {i}. {match} | 🕒 {match_time_ufa}", expanded=(i == 1)):
+                        with st.expander(f"⚽ {i}. {home_team} — {away_team} | 🕒 {match_time_ufa}", expanded=(i == 1)):
                             if real_metrics:
                                 st.info(f"📊 **Метрики из базы:** {real_metrics}")
                             else:
-                                st.warning("⚠️ Команда не найдена в базе FotMob, расчет по внутренним знаниям.")
+                                st.warning(f"⚠️ Клубы '{home_team}' / '{away_team}' оценены по общему классу.")
 
                             st.caption(f"🕒 **Начало:** {match_time_ufa} | **Уверенность:** {confidence_str}")
                             st.markdown(f"🎯 **Ставка:** `{bet_main}`")
@@ -337,7 +358,7 @@ with tab1:
                             st.markdown(f"📋 **Разбор:**\n\n{review_val}")
 
                         tg_message_text = (
-                            f"⚽ <b>Прогноз на матч: {escape_html(match)}</b>\n"
+                            f"⚽ <b>Прогноз на матч: {escape_html(home_team)} — {escape_html(away_team)}</b>\n"
                             f"🕒 <b>Начало:</b> <code>{escape_html(match_time_ufa)}</code>\n\n"
                             f"🎯 <b>Ставка:</b> <code>{escape_html(bet_main)}</code> [⏳]\n"
                             f"⚽ <b>ИТ:</b> <code>{escape_html(ind_total)}</code> [⏳]\n"
@@ -352,7 +373,7 @@ with tab1:
                         if success and msg_id:
                             st.toast(f"📤 Прогноз отправлен в Telegram!", icon="✅")
                             match_item = {
-                                "match": match, "match_time_ufa": match_time_ufa,
+                                "match": f"{home_team} — {away_team}", "match_time_ufa": match_time_ufa,
                                 "bet_main": bet_main, "ind_total": ind_total,
                                 "bet_aggressive": bet_agg, "bet_cautious": bet_caut,
                                 "best_pick": best_pick, "confidence": confidence_str,
@@ -393,6 +414,7 @@ with tab1:
 # ==============================================================================
 # 📊 ВКЛАДКА 2: ИСТОРИЯ
 # ==============================================================================
+
 with tab2:
     st.subheader("📊 История прогнозов (База данных)")
     history = load_history()
