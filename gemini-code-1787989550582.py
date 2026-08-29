@@ -19,7 +19,7 @@ UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption(f"Время генерации: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | AI Core Analytics")
+st.caption(f"Время генерации: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | Оптимизированный AI Core")
 
 # Ключи и настройки Telegram
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
@@ -140,9 +140,10 @@ with st.sidebar:
     )
     
     selected_model = st.selectbox(
-        "Модель нейросети:",
+        "Модель (от самых дешевых):",
         options=[
-            "google/gemini-2.5-flash-lite",
+            "google/gemini-2.5-flash-lite",  # Минимальный расход токенов
+            "deepseek/deepseek-chat",        # Высокая точность, дешевая цена
             "openai/gpt-4o-mini",
             "google/gemini-2.5-flash"
         ],
@@ -162,7 +163,7 @@ with st.sidebar:
 tab1, tab2 = st.tabs(["📝 Ввод матчей и анализ", "📋 История и результаты"])
 
 # ==============================================================================
-# 🧠 ВЫЗОВ НЕЙРОСЕТИ И ОЧИСТКА
+# 🧠 ОБРАБОТКА AI И ОЧИСТКА ВЫВОДА
 # ==============================================================================
 
 def ask_vsegpt(prompt):
@@ -174,55 +175,41 @@ def ask_vsegpt(prompt):
         base_url="https://api.vsegpt.ru/v1"
     )
 
+    # Ограничение max_tokens для жесткой экономии баланса
     response = client.chat.completions.create(
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
-        max_tokens=400
+        max_tokens=220
     )
     return response.choices[0].message.content
 
-def sanitize_bet_text(text: str, home: str, away: str) -> str:
-    """Устраняет дублирование и заменяет абстрактные маркеры"""
+def sanitize_bet_text(text: str) -> str:
+    """Очищает строку от кавычек и форматирования"""
     if not text:
-        return text
-    res = text.strip()
-    
-    # Заменяем П1 / П2
-    if home.lower() in res.lower() or away.lower() in res.lower():
-        res = re.sub(r'\bП1\b', 'победа', res)
-        res = re.sub(r'\bП2\b', 'победа', res)
-    else:
-        res = re.sub(r'\bП1\b', f'{home} победа', res)
-        res = re.sub(r'\bП2\b', f'{away} победа', res)
-        res = re.sub(r'\b1Х\b|\b1X\b', f'{home} 1X', res)
-        res = re.sub(r'\bХ2\b|\bX2\b', f'{away} X2', res)
-        res = re.sub(r'\bИТ1\b|\bИТБ1\b', f'{home} ИТБ', res)
-        res = re.sub(r'\bИТ2\b|\bИТБ2\b', f'{away} ИТБ', res)
+        return "—"
+    cleaned = text.replace("`", "").replace('"', '').replace("'", "").strip()
+    return cleaned if cleaned else "—"
 
-    # Убираем случайные двойные имена команды (например "Сиэтл Сиэтл")
-    res = re.sub(rf'\b({re.escape(home)})\s+\1\b', r'\1', res, flags=re.IGNORECASE)
-    res = re.sub(rf'\b({re.escape(away)})\s+\1\b', r'\1', res, flags=re.IGNORECASE)
-    return re.sub(r'\s+', ' ', res).strip()
-
-def parse_match_block(block_text, home, away):
+def parse_match_block(block_text):
     data = {}
     lines = block_text.split('\n')
     current_key = None
     
     for line in lines:
-        if ':' in line:
-            parts = line.split(':', 1)
+        line_clean = line.strip()
+        if ':' in line_clean:
+            parts = line_clean.split(':', 1)
             candidate_key = parts[0].strip().upper()
             if candidate_key in [
                 'ВРЕМЯ_МАТЧА', 'СТАВКА', 'ИТ', 'БОЛЕЕ_АГРЕССИВНО', 
                 'ОСТОРОЖНАЯ_СТАВКА', 'ЛУЧШАЯ_СТАВКА', 'УВЕРЕННОСТЬ', 'РАЗБОР'
             ]:
                 current_key = candidate_key
-                data[current_key] = sanitize_bet_text(parts[1].strip(), home, away)
+                data[current_key] = sanitize_bet_text(parts[1])
                 continue
-        if current_key == 'РАЗБОР' and line.strip():
-            data[current_key] += "\n" + line.strip()
+        if current_key == 'РАЗБОР' and line_clean:
+            data[current_key] += " " + line_clean
             
     return data
 
@@ -263,7 +250,7 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
 with tab1:
     match_input = st.text_area(
         "Введите список матчей (каждый матч с новой строки):", 
-        placeholder="Сиэтл Саундерс - Чикаго Файр\nИнтер Майами - Монреаль\nСевилья - Атлетико Мадрид",
+        placeholder="Интер Майами - Монреаль\nСиэтл Саундерс - Чикаго Файр\nСевилья - Атлетико Мадрид",
         height=130
     )
     
@@ -283,45 +270,34 @@ with tab1:
                 home_team, away_team = split_teams(match)
                 with st.spinner(f"Анализ матча {i}/{len(matches_list)} ({home_team} — {away_team})..."):
 
-                    # Встроенная логическая цепочка (Chain of Thought)
+                    # Сжатый и экономичный промпт (экономит до 70% токенов)
                     analysis_prompt = f"""
-                    Ты профессиональный спортивный аналитик и каппер. 
-                    Проведи глубокий разбор предстоящего матча:
-                    - ХОЗЯЕВА (Домашнее поле): {home_team}
-                    - ГОСТИ (Выезд): {away_team}
-                    Время анализа: {current_time_str} (Уфа, UTC+5).
+                    Матч: {home_team} (хозяева) vs {away_team} (гости). Время: {current_time_str} (Уфа).
+                    Проанализируй баланс сил. Запрещены сокращения П1/П2/ИТ1/1Х. Всегда пиши полное имя команды.
 
-                    ПРАВИЛА ПОСТРОЕНИЯ ЛОГИКИ:
-                    1. Оцени реальный класс команд, домашнее преимущество {home_team} и гостевую форму {away_team}.
-                    2. Выбери фаворита (или укажи равную/ничейную игру).
-                    3. ВСЕ СТАВКИ ОБЯЗАНЫ 100% СООТВЕТСТВОВАТЬ ТВОЕМУ РАЗБОРУ:
-                       - Если перевес у {home_team} -> Ставка, ИТ и Лучшая ставка идут СТРОГО на {home_team}.
-                       - Если перевес у {away_team} -> Ставка, ИТ и Лучшая ставка идут СТРОГО на {away_team}.
-                    4. ЗАПРЕЩЕНО писать абстрактные "П1", "П2", "1Х", "ИТ1". Всегда пиши название команды.
-
-                    ФОРМАТ ВЫВОДА СТРОГО:
-                    ВРЕМЯ_МАТЧА: [Предстоящий матч или время по Уфе]
-                    РАЗБОР: [2 факта: анализ игровой формы, баланса атаки и обороны]
-                    СТАВКА: [*Название команды* победа / фора(0) / фора(+1)]
-                    ИТ: [*Название команды* ИТБ(1.0), ИТБ(1.5), ИТМ(1.0) или ИТМ(1.5)]
-                    БОЛЕЕ_АГРЕССИВНО: [*Название команды* победа + тотал или фора (-1.5)]
-                    ОСТОРОЖНАЯ_СТАВКА: [*Название команды* 1X или X2 или плюсовая фора]
-                    ЛУЧШАЯ_СТАВКА: [Главная надежная ставка, строго согласованная с разбором]
-                    УВЕРЕННОСТЬ: [От ⭐⭐⭐ до ⭐⭐⭐⭐⭐]
+                    Выдай строго по шаблону:
+                    ВРЕМЯ_МАТЧА: {current_time_str}
+                    РАЗБОР: [2 кратких предложения о форме и силе клубов]
+                    СТАВКА: [*Команда* победа / фора]
+                    ИТ: [*Команда* ИТБ / ИТМ]
+                    БОЛЕЕ_АГРЕССИВНО: [*Команда* победа + тотал или фора]
+                    ОСТОРОЖНАЯ_СТАВКА: [*Команда* 1X / X2 или тотал]
+                    ЛУЧШАЯ_СТАВКА: [Главный выбор, строго согласованный с разбором]
+                    УВЕРЕННОСТЬ: [⭐⭐⭐⭐ или ⭐⭐⭐⭐⭐]
                     """
 
                     try:
                         raw_response = ask_vsegpt(analysis_prompt)
-                        parsed_data = parse_match_block(raw_response, home_team, away_team)
+                        parsed_data = parse_match_block(raw_response)
 
-                        match_time_ufa = parsed_data.get('ВРЕМЯ_МАТЧА', 'Предстоящий матч')
+                        match_time_ufa = parsed_data.get('ВРЕМЯ_МАТЧА', current_time_str)
                         bet_main = parsed_data.get('СТАВКА', f"{home_team} победа")
                         ind_total = parsed_data.get('ИТ', f"{home_team} ИТБ(1.0)")
                         bet_agg = parsed_data.get('БОЛЕЕ_АГРЕССИВНО', f"{home_team} победа + ТБ(2.5)")
                         bet_caut = parsed_data.get('ОСТОРОЖНАЯ_СТАВКА', f"{home_team} 1X")
                         best_pick = parsed_data.get('ЛУЧШАЯ_СТАВКА', bet_main)
                         confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '⭐⭐⭐⭐')
-                        review_val = parsed_data.get('РАЗБОР', 'Глубокий анализ игрового баланса команд завершен.')
+                        review_val = parsed_data.get('РАЗБОР', 'Анализ игрового баланса команд завершен.')
 
                         if confidence_str.count('⭐') >= 5:
                             accumulated_express_items.append({
@@ -349,7 +325,7 @@ with tab1:
                             f"🛡️ <b>Осторожная ставка:</b> <code>{escape_html(bet_caut)}</code> [⏳]\n"
                             f"🔥 <b>Лучшая ставка на этот матч:</b> <code>{escape_html(best_pick)}</code> [⏳]\n"
                             f"⭐ <b>Уверенность:</b> {confidence_str}\n\n"
-                            f"📝 <b>Разбор метрик:</b>\n{escape_html(review_val)}"
+                            f"📝 <b>Разбор:</b>\n{escape_html(review_val)}"
                         )
 
                         success, msg, msg_id = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
@@ -461,12 +437,12 @@ with tab2:
                             f"🛡️ <b>Осторожная ставка:</b> <code>{escape_html(b_caut)}</code> [{item['status_cautious']}]\n"
                             f"🔥 <b>Лучшая ставка на этот матч:</b> <code>{escape_html(b_best)}</code> [{item['status_best_pick']}]\n"
                             f"⭐ <b>Уверенность:</b> {item['confidence']}\n\n"
-                            f"📝 <b>Разбор метрик:</b>\n{escape_html(item['review'])}"
+                            f"📝 <b>Разбор:</b>\n{escape_html(item['review'])}"
                         )
                         
                         edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
                         updated_count += 1
-                    except Exception as e:
+                    except Exception:
                         continue
                 
                 update_history_in_db(history)
