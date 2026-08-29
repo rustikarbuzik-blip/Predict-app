@@ -2,12 +2,18 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import time
-from parsers import get_arbworld_moneyway, get_corner_stats_data, get_footystats_data
+from parsers import (
+    get_arbworld_moneyway, 
+    get_corner_stats_data, 
+    get_footystats_data,
+    get_fbref_data,
+    get_oddsportal_dropping_odds
+)
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("Агрегатор: РЕАЛЬНЫЕ Arbworld, Corner Stats, FootyStats + Oddsportal, NB Bet")
+st.caption("Агрегатор: РЕАЛЬНЫЕ Arbworld, Corner Stats, FootyStats, FBref & Oddsportal")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -37,7 +43,6 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
-    """Отправка запросов к Gemini с защитой от превышения Rate Limit (RPM)"""
     candidate_models = [
         'gemini-3.6-flash',
         'models/gemini-3.6-flash',
@@ -45,14 +50,13 @@ def ask_gemini(prompt, image=None):
         'models/gemini-3.0-flash'
     ]
     for model_name in candidate_models:
-        for attempt in range(3):  # До 3 попыток на случай блокировки лимитов
+        for attempt in range(3):
             try:
                 m = genai.GenerativeModel(model_name)
                 inputs = [prompt, image] if image else [prompt]
                 response = m.generate_content(inputs)
                 return response.text
-            except Exception as e:
-                # В случае ошибки лимитов делаем паузу и пробуем снова
+            except Exception:
                 time.sleep(3)
                 continue
     raise Exception("Ошибка обращения к Gemini API. Превышен лимит запросов или некорректный ключ.")
@@ -96,31 +100,28 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
                 
-                # Пауза перед запросом для обхода ограничений 15 RPM у бесплатного Gemini API
                 time.sleep(2)
 
-                # Вызовы парсеров реальных данных
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
                 real_footystats = get_footystats_data(match)
+                real_fbref = get_fbref_data(match)
+                real_oddsportal = get_oddsportal_dropping_odds(match)
 
                 analysis_prompt = f"""
-                Ты спортивный аналитик. Сделай прогноз для футбольного матча: {match}.
+                Ты спортивный аналитик. Сделай глубокий прогноз для матча: {match}.
 
-                РЕАЛЬНЫЕ ДАННЫЕ С ARBWORLD: {real_arbworld}
-                РЕАЛЬНЫЕ ДАННЫЕ С CORNER STATS: {real_corners}
-                РЕАЛЬНЫЕ ДАННЫЕ С FOOTYSTATS: {real_footystats}
+                РЕАЛЬНЫЕ ДАННЫЕ С АГРЕГАТОРОВ:
+                - Arbworld: {real_arbworld}
+                - Corner Stats: {real_corners}
+                - FootyStats: {real_footystats}
+                - FBref (StatsBomb): {real_fbref}
+                - Oddsportal: {real_oddsportal}
 
                 Задания:
-                1. Поле ARBWORLD заполни значением: {real_arbworld}
-                2. Поле CORNERSTATS заполни значением: {real_corners}
-                3. Поле FOOTYSTATS заполни значением: {real_footystats}
-                4. Смоделируй данные оставшихся 2 сервисов (Oddsportal, NB Bet).
-                5. Сформируй итоговую рекомендацию на основе полученной реальной статистики.
+                1. Сформируй итоговую рекомендацию с учетом продвинутого xG, прессинга (FBref) и изменения коэффициентов.
 
                 Ответь СТРОГО в формате:
-                ODDSPORTAL: [1 предложение о движении кэфов]
-                NBBET: [1 предложение о трендах и сериях]
                 ИСХОД: [Ставка на исход или фору, например: П1 или Фора 1 (0)]
                 ТОТАЛ: [Ставка на тотал голов, например: ИТБ1 (1.5)]
                 УГЛОВЫЕ: [Ставка на угловые, например: ТБ (9.5)]
@@ -136,13 +137,13 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
                         st.markdown("#### 📊 Данные аналитических сервисов")
                         c1, c2, c3 = st.columns(3)
                         with c1:
-                            st.success(f"**FootyStats (РЕАЛЬНЫЕ ДАННЫЕ):**\n{real_footystats}")
-                            st.success(f"**Arbworld (РЕАЛЬНЫЕ ДАННЫЕ):**\n{real_arbworld}")
+                            st.success(f"**FootyStats:**\n{real_footystats}")
+                            st.success(f"**Arbworld:**\n{real_arbworld}")
                         with c2:
-                            st.info(f"**Oddsportal:**\n{parsed_data.get('ODDSPORTAL', 'Анализируется...')}")
-                            st.info(f"**NB Bet:**\n{parsed_data.get('NBBET', 'Анализируется...')}")
+                            st.success(f"**FBref (StatsBomb):**\n{real_fbref}")
+                            st.success(f"**Oddsportal:**\n{real_oddsportal}")
                         with c3:
-                            st.success(f"**Corner Stats (РЕАЛЬНЫЕ ДАННЫЕ):**\n{real_corners}")
+                            st.success(f"**Corner Stats:**\n{real_corners}")
 
                         st.markdown("---")
                         st.markdown("#### 🎯 Карточка ставки")
