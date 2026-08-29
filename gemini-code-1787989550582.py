@@ -321,7 +321,8 @@ with tab1:
                             st.success(f"🎯 **МОЙ ВЫБОР (Основная ставка):** `{my_pick_val}`")
                             st.info(f"🏟️ **Погода и поле:** {weather_val}")
                             st.markdown(f"**📋 Разбор метрик:**\n\n{review_val}")
-tg_message_text = (
+
+                        tg_message_text = (
                             f"⚽ <b>Прогноз на матч: {escape_html(match)}</b>\n"
                             f"🕒 <b>Начало:</b> <code>{escape_html(match_time_ufa)}</code>\n\n"
                             f"🎯 <b>Исход/Фора:</b> <code>{escape_html(pick_val)}</code> [⏳]\n"
@@ -398,7 +399,6 @@ with tab2:
                     my_pick_val = item.get("my_pick", "—")
                     msg_id = item["message_id"]
                     
-                    check_prompt = f"""
                     Проверь результат матча: "{match_name}".
                     Ставки: 1) Исход: {pick}, 2) Общий тотал: {total_pick}, 3) Индив. тотал: {ind_total_pick}, 4) Угловые: {corners_pick}, 5) Мой выбор: {my_pick_val}.
                     Ответь СТРОГО:
@@ -451,22 +451,4 @@ with tab2:
                 st.write(f"**Индивидуальный тотал:** {h_item.get('ind_total', '—')} [{h_item.get('status_ind_total', '⏳')}]")
                 st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
                 st.write(f"**🔥 Мой выбор:** {h_item.get('my_pick', '—')} [{h_item.get('status_my_pick', '⏳')}]")
-                st.markdown(f"**Разбор:**\n\n{h_item['review']}")                    
-                    check_prompt = f"""
-                    Проверь результат матча: "{match_name}".
-                    Ставки: 1) Исход: {pick}, 2) Общий тотал: {total_pick}, 3) Индив. тотал: {ind_total_pick}, 4) Угловые: {corners_pick}, 5) Мой выбор: {my_pick_val}.
-                    Ответь СТРОГО:
-                    ИСХОД: [WIN/LOSS]
-                    ТОТАЛ: [WIN/LOSS]
-                    ИНДИВИДУАЛЬНЫЙ_ТОТАЛ: [WIN/LOSS]
-                    УГЛОВЫЕ: [WIN/LOSS]
-                    МОЙ_ВЫБОР: [WIN/LOSS]
-                    (Если идет или не начался, напиши PENDING)
-                    """
-                    try:
-                        res = ask_vsegpt(check_prompt).upper()
-                        
-                        if "PENDING" in res:
-                            continue
-
-                        item["status_pic
+                st.markdown(f"**Разбор:**\n\n{h_item['review']}")
