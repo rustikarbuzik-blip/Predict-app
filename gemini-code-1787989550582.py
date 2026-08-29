@@ -17,8 +17,8 @@ st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wid
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Аналитический центр спортивных матчей (Уфа Live Schedule 🕒)")
-st.caption(f"Текущее время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | Агрегатор + SQLite + VseGPT")
+st.title("⚽ Аналитический центр спортивных матчей (Уфа Schedule 🕒)")
+st.caption(f"Время генерации: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | Агрегатор + SQLite + VseGPT")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 
@@ -40,6 +40,7 @@ def init_db():
             total TEXT,
             ind_total TEXT,
             corners TEXT,
+            my_pick TEXT,
             confidence TEXT,
             weather TEXT,
             review TEXT,
@@ -49,6 +50,7 @@ def init_db():
             status_total TEXT,
             status_ind_total TEXT,
             status_corners TEXT,
+            status_my_pick TEXT,
             date TEXT
         )
     ''')
@@ -60,7 +62,7 @@ init_db()
 def load_history():
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("SELECT match, match_time_ufa, pick, total, ind_total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_ind_total, status_corners, date FROM history")
+    cursor.execute("SELECT match, match_time_ufa, pick, total, ind_total, corners, my_pick, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_ind_total, status_corners, status_my_pick, date FROM history")
     rows = cursor.fetchall()
     conn.close()
     
@@ -69,10 +71,11 @@ def load_history():
         history.append({
             "match": row[0], "match_time_ufa": row[1] if row[1] else "—",
             "pick": row[2], "total": row[3], "ind_total": row[4] if row[4] else "—",
-            "corners": row[5], "confidence": row[6], "weather": row[7], "review": row[8],
-            "message_id": int(row[9]) if row[9] else 0, "overall_status": row[10],
-            "status_pick": row[11], "status_total": row[12], "status_ind_total": row[13] if row[13] else "⏳",
-            "status_corners": row[14], "date": row[15]
+            "corners": row[5], "my_pick": row[6] if row[6] else "—",
+            "confidence": row[7], "weather": row[8], "review": row[9],
+            "message_id": int(row[10]) if row[10] else 0, "overall_status": row[11],
+            "status_pick": row[12], "status_total": row[13], "status_ind_total": row[14] if row[14] else "⏳",
+            "status_corners": row[15], "status_my_pick": row[16] if row[16] else "⏳", "date": row[17]
         })
     return history
 
@@ -80,15 +83,15 @@ def save_match_to_db(item):
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO history (match, match_time_ufa, pick, total, ind_total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_ind_total, status_corners, date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO history (match, match_time_ufa, pick, total, ind_total, corners, my_pick, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_ind_total, status_corners, status_my_pick, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         item.get("match"), item.get("match_time_ufa", "—"),
         item.get("pick"), item.get("total"), item.get("ind_total", "—"), item.get("corners"),
-        item.get("confidence"), item.get("weather"), item.get("review"), item.get("message_id"),
+        item.get("my_pick", "—"), item.get("confidence"), item.get("weather"), item.get("review"), item.get("message_id"),
         item.get("overall_status", "⏳ Ожидание"), item.get("status_pick", "⏳"),
         item.get("status_total", "⏳"), item.get("status_ind_total", "⏳"),
-        item.get("status_corners", "⏳"), item.get("date")
+        item.get("status_corners", "⏳"), item.get("status_my_pick", "⏳"), item.get("date")
     ))
     conn.commit()
     conn.close()
@@ -99,14 +102,15 @@ def update_history_in_db(history_data):
     cursor.execute("DELETE FROM history")
     for item in history_data:
         cursor.execute('''
-            INSERT INTO history (match, match_time_ufa, pick, total, ind_total, corners, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_ind_total, status_corners, date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO history (match, match_time_ufa, pick, total, ind_total, corners, my_pick, confidence, weather, review, message_id, overall_status, status_pick, status_total, status_ind_total, status_corners, status_my_pick, date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             item.get("match"), item.get("match_time_ufa", "—"),
             item.get("pick"), item.get("total"), item.get("ind_total", "—"), item.get("corners"),
-            item.get("confidence"), item.get("weather"), item.get("review"), item.get("message_id"),
+            item.get("my_pick", "—"), item.get("confidence"), item.get("weather"), item.get("review"), item.get("message_id"),
             item.get("overall_status"), item.get("status_pick"), item.get("status_total"),
-            item.get("status_ind_total", "⏳"), item.get("status_corners"), item.get("date")
+            item.get("status_ind_total", "⏳"), item.get("status_corners"),
+            item.get("status_my_pick", "⏳"), item.get("date")
         ))
     conn.commit()
     conn.close()
@@ -153,16 +157,29 @@ def ask_vsegpt(prompt):
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
-        max_tokens=500
+        max_tokens=850
     )
     return response.choices[0].message.content
 
 def parse_match_block(block_text):
     data = {}
-    for line in block_text.split('\n'):
+    lines = block_text.split('\n')
+    current_key = None
+    
+    for line in lines:
         if ':' in line:
-            k, v = line.split(':', 1)
-            data[k.strip().upper()] = v.strip()
+            parts = line.split(':', 1)
+            candidate_key = parts[0].strip().upper()
+            if candidate_key in [
+                'ВРЕМЯ_МАТЧА', 'ИСХОД', 'ТОТАЛ', 'ИНДИВИДУАЛЬНЫЙ_ТОТАЛ', 
+                'УГЛОВЫЕ', 'МОЙ_ВЫБОР', 'УВЕРЕННОСТЬ', 'ПОГОДА_ПОЛЕ', 'РАЗБОР'
+            ]:
+                current_key = candidate_key
+                data[current_key] = parts[1].strip()
+                continue
+        if current_key == 'РАЗБОР' and line.strip():
+            data[current_key] += "\n" + line.strip()
+            
     return data
 
 def send_telegram_message(text, token, chat_id):
@@ -205,11 +222,11 @@ with tab1:
             st.warning("Введите хотя бы один матч в текстовое поле!")
         else:
             current_time_str = now_ufa.strftime('%d.%m.%Y %H:%M')
-            st.success(f"Найдено матчей для анализа: **{len(matches_list)}** (Сверка со временем: {current_time_str} по Уфе)")
+            st.success(f"Анализ **{len(matches_list)}** матчей (Время генерации: {current_time_str} по Уфе)")
             accumulated_express_items = []
 
             for i, match in enumerate(matches_list, 1):
-                with st.spinner(f"Проверка расписания и анализ матча {i}/{len(matches_list)} ({match})..."):
+                with st.spinner(f"Анализ матча {i}/{len(matches_list)} ({match})..."):
                     real_arbworld = get_arbworld_moneyway(match)
                     real_corners = get_corner_stats_data(match)
                     real_footystats = get_footystats_data(match)
@@ -217,49 +234,47 @@ with tab1:
                     real_oddsportal = get_oddsportal_dropping_odds(match)
 
                     analysis_prompt = f"""
-                    Сейчас точное время и дата: {current_time_str} по времени УФЫ (UTC+5, Екатеринбургское время / Башкортостан).
-                    Матч: {match}.
+                    Ты профессиональный спортивный аналитик высочайшего уровня.
+                    Сделай глубокий комплексный прогноз на футбольный матч: {match}.
+                    Ориентировочное время формирования запроса: {current_time_str} (Уфа, UTC+5).
 
-                    ТВОЯ ЗАДАЧА:
-                    1. Определи реальную дату и точное время начала этого матча СТРОГО по времени УФЫ (UTC+5).
-                    2. Проверь: если матч УЖЕ СЫГРАН или завершился до {current_time_str} (время Уфы), напиши СТАТУС: ЗАВЕРШЕН.
-                    3. Если матч предстоит (еще не начался или идет прямо сейчас), напиши СТАТУС: АКТУАЛЕН.
+                    ВХОДНЫЕ ДАННЫЕ ПАРСЕРОВ:
+                    1. Arbworld (денежные объемы и перекосы): {real_arbworld}
+                    2. Corner Stats (тенденции угловых ударов): {real_corners}
+                    3. FootyStats (xG, результативность и темп): {real_footystats}
+                    4. FBref (продвинутая командная метрика): {real_fbref}
+                    5. Oddsportal (движение и падение коэффициентов): {real_oddsportal}
 
-                    ДАННЫЕ АГРЕГАТОРОВ:
-                    - Arbworld: {real_arbworld}
-                    - Corner Stats: {real_corners}
-                    - FootyStats: {real_footystats}
-                    - FBref: {real_fbref}
-                    - Oddsportal: {real_oddsportal}
+                    ТРЕБОВАНИЯ К ОТВЕТУ:
+                    В блоке РАЗБОР подробно распиши обоснование ПО КАЖДОЙ ИЗ МЕТРИК:
+                    - Что показывают денежные потоки Arbworld и падение кэфов Oddsportal.
+                    - Каковы показатели xG, форма и статистика FootyStats/FBref.
+                    - Что показывает детальная статистика Corner Stats.
+                    - В строке МОЙ_ВЫБОР укажи ОДИН самый надежный и валуйный исход матча.
 
-                    Ответь СТРОГО в формате:
-                    СТАТУС: [АКТУАЛЕН или ЗАВЕРШЕН]
-                    ДАТА_ВРЕМЯ_УФА: [Формат: ДД.ММ.ГГГГ ЧЧ:ММ (Уфа), например 29.08.2026 23:30 (Уфа)]
+                    Ответь СТРОГО в следующем формате без лишних приветствий:
+                    ВРЕМЯ_МАТЧА: [Укажи дату и время начала по Уфе (UTC+5), например Сегодня 23:30 (Уфа)]
                     ИСХОД: [Ставка на исход или фору]
-                    ТОТАЛ: [Ставка на общий тотал голов больше/меньше]
-                    ИНДИВИДУАЛЬНЫЙ_ТОТАЛ: [Ставка на индив. тотал конкретной команды, например ИТБ1(1.5), ИТМ2(1) или ИТБ2(1.5)]
+                    ТОТАЛ: [Ставка на общий тотал голов]
+                    ИНДИВИДУАЛЬНЫЙ_ТОТАЛ: [Ставка на индив. тотал П1 или П2]
                     УГЛОВЫЕ: [Ставка на угловые]
-                    УВЕРЕННОСТЬ: [Оценка по шкале от 1 до 10, например 8.5/10 или 9.5/10]
-                    ПОГОДА_ПОЛЕ: [Кратко факты]
-                    РАЗБОР: [Обоснование прогноза в 2-3 предложениях]
+                    МОЙ_ВЫБОР: [Главный, наиболее вероятный прогноз на этот матч]
+                    УВЕРЕННОСТЬ: [Оценка уверенности по шкале 1-10, например 9.5/10 или 8.5/10]
+                    ПОГОДА_ПОЛЕ: [Факторы поля/погоды]
+                    РАЗБОР: [Развернутый структурированный разбор по всем спарсенным метрикам: деньги/кэфы, xG/форма, угловые]
                     """
 
                     try:
                         raw_response = ask_vsegpt(analysis_prompt)
                         parsed_data = parse_match_block(raw_response)
 
-                        match_status = parsed_data.get('СТАТУС', 'АКТУАЛЕН').upper()
-                        match_time_ufa = parsed_data.get('ДАТА_ВРЕМЯ_УФА', 'Уточняется')
-
-                        if "ЗАВЕРШЕН" in match_status:
-                            st.warning(f"⏩ **{match}** — матч уже завершен ({match_time_ufa}). Пропущен.")
-                            continue
-
+                        match_time_ufa = parsed_data.get('ВРЕМЯ_МАТЧА', 'Предстоящий матч')
                         confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '8.5/10')
                         pick_val = parsed_data.get('ИСХОД', '—')
                         total_val = parsed_data.get('ТОТАЛ', '—')
                         ind_total_val = parsed_data.get('ИНДИВИДУАЛЬНЫЙ_ТОТАЛ', '—')
                         corners_val = parsed_data.get('УГЛОВЫЕ', '—')
+                        my_pick_val = parsed_data.get('МОЙ_ВЫБОР', pick_val)
                         weather_val = parsed_data.get('ПОГОДА_ПОЛЕ', '—')
                         review_val = parsed_data.get('РАЗБОР', 'Анализ завершен.')
                         
@@ -273,12 +288,12 @@ with tab1:
                             accumulated_express_items.append({
                                 "match": match,
                                 "time": match_time_ufa,
-                                "pick": pick_val,
+                                "pick": my_pick_val,
                                 "confidence": confidence_str
                             })
 
                         with st.expander(f"⚽ {i}. {match} | 🕒 {match_time_ufa}", expanded=(i == 1)):
-                            st.caption(f"🕒 **Начало матча:** {match_time_ufa}")
+                            st.caption(f"🕒 **Начало:** {match_time_ufa}")
                             col1, col2, col3, col4, col5 = st.columns(5)
                             col1.metric("Исход / Фора", pick_val)
                             col2.metric("Общий тотал", total_val)
@@ -286,8 +301,9 @@ with tab1:
                             col4.metric("Угловые", corners_val)
                             col5.metric("Уверенность", confidence_str)
 
+                            st.success(f"🎯 **МОЙ ВЫБОР (Основная ставка):** `{my_pick_val}`")
                             st.info(f"🏟️ **Погода и поле:** {weather_val}")
-                            st.success(f"**📋 Разбор:**\n\n{review_val}")
+                            st.markdown(f"**📋 Подробный разбор метрик:**\n\n{review_val}")
 
                         tg_message_text = (
                             f"⚽ *Прогноз на матч: {match}*\n"
@@ -296,9 +312,10 @@ with tab1:
                             f"📈 *Общий тотал голов:* `{total_val}` [⏳]\n"
                             f"⚽ *Индивидуальный тотал:* `{ind_total_val}` [⏳]\n"
                             f"🚩 *Угловые:* `{corners_val}` [⏳]\n"
+                            f"🔥 *МОЙ ВЫБОР:* `{my_pick_val}` [⏳]\n"
                             f"⭐ *Уверенность:* `{confidence_str}`\n"
                             f"🏟️ *Погода/Поле:* {weather_val}\n\n"
-                            f"📝 *Разбор:* {review_val}"
+                            f"📝 *Разбор метрик:*\n{review_val}"
                         )
 
                         success, msg, msg_id = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
@@ -306,10 +323,12 @@ with tab1:
                             st.toast(f"📤 Прогноз отправлен в Telegram!", icon="✅")
                             match_item = {
                                 "match": match, "match_time_ufa": match_time_ufa,
-                                "pick": pick_val, "total": total_val, "ind_total": ind_total_val, "corners": corners_val,
+                                "pick": pick_val, "total": total_val, "ind_total": ind_total_val,
+                                "corners": corners_val, "my_pick": my_pick_val,
                                 "confidence": confidence_str, "weather": weather_val, "review": review_val,
                                 "message_id": msg_id, "overall_status": "⏳ Ожидание",
-                                "status_pick": "⏳", "status_total": "⏳", "status_ind_total": "⏳", "status_corners": "⏳",
+                                "status_pick": "⏳", "status_total": "⏳", "status_ind_total": "⏳",
+                                "status_corners": "⏳", "status_my_pick": "⏳",
                                 "date": datetime.now().strftime("%Y-%m-%d %H:%M")
                             }
                             save_match_to_db(match_item)
@@ -325,19 +344,19 @@ with tab1:
                     approx_total_odds = round(1.75 ** len(accumulated_express_items), 2)
 
                     for idx, item in enumerate(accumulated_express_items, 1):
-                        express_lines.append(f"{idx}. *{item['match']}* (🕒 `{item['time']}`) — Ставка: `{item['pick']}` (⭐ {item['confidence']})")
+                        express_lines.append(f"{idx}. *{item['match']}* (🕒 `{item['time']}`) — Выбор: `{item['pick']}` (⭐ {item['confidence']})")
 
                     express_text = (
                         f"🔥 *ТОП-ЭКСПРЕСС ДНЯ (9.5+ / 10)* 🔥\n\n"
                         + "\n".join(express_lines) +
                         f"\n\n📊 *Примерный итоговый коэффициент:* `~{approx_total_odds}`\n"
-                        f"💡 *Статус:* Прошли проверку расписания и жесткий отбор."
+                        f"💡 *Статус:* Отобраны по коэффициенту уверенности."
                     )
 
                     send_telegram_message(express_text, input_tg_token, input_tg_chat_id)
                     st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
             else:
-                st.info("ℹ️ Нет предстоящих матчей с уверенностью 9.5+/10 для Экспресса дня.")
+                st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
 
 with tab2:
     st.subheader("📊 История прогнозов (База данных)")
@@ -360,16 +379,24 @@ with tab2:
                     total_pick = item["total"]
                     ind_total_pick = item.get("ind_total", "—")
                     corners_pick = item["corners"]
+                    my_pick_val = item.get("my_pick", "—")
                     msg_id = item["message_id"]
                     
                     check_prompt = f"""
                     Проверь результат матча: "{match_name}".
-                    Ставки: 1) Исход: {pick}, 2) Общий тотал: {total_pick}, 3) Индив. тотал: {ind_total_pick}, 4) Угловые: {corners_pick}.
+                    Ставки:
+                    1) Исход: {pick}
+                    2) Общий тотал: {total_pick}
+                    3) Индив. тотал: {ind_total_pick}
+                    4) Угловые: {corners_pick}
+                    5) Мой выбор: {my_pick_val}
+
                     Ответь СТРОГО:
                     ИСХОД: [WIN/LOSS]
                     ТОТАЛ: [WIN/LOSS]
                     ИНДИВИДУАЛЬНЫЙ_ТОТАЛ: [WIN/LOSS]
                     УГЛОВЫЕ: [WIN/LOSS]
+                    МОЙ_ВЫБОР: [WIN/LOSS]
                     (Если идет или не начался, напиши PENDING)
                     """
                     try:
@@ -382,6 +409,7 @@ with tab2:
                         item["status_total"] = "✅" if "ТОТАЛ: WIN" in res else "❌"
                         item["status_ind_total"] = "✅" if "ИНДИВИДУАЛЬНЫЙ_ТОТАЛ: WIN" in res else "❌"
                         item["status_corners"] = "✅" if "УГЛОВЫЕ: WIN" in res else "❌"
+                        item["status_my_pick"] = "✅" if "МОЙ_ВЫБОР: WIN" in res else "❌"
                         item["overall_status"] = "🎯 Завершено"
 
                         updated_msg_text = (
@@ -391,25 +419,4 @@ with tab2:
                             f"📈 *Общий тотал голов:* `{total_pick}` [{item['status_total']}]\n"
                             f"⚽ *Индивидуальный тотал:* `{ind_total_pick}` [{item['status_ind_total']}]\n"
                             f"🚩 *Угловые:* `{corners_pick}` [{item['status_corners']}]\n"
-                            f"⭐ *Уверенность:* `{item['confidence']}`\n"
-                            f"🏟️ *Погода/Поле:* {item['weather']}\n\n"
-                            f"📝 *Разбор:* {item['review']}"
-                        )
-                        
-                        edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
-                        updated_count += 1
-                    except Exception as e:
-                        continue
-                
-                update_history_in_db(history)
-                st.success(f"Готово! Обновлено матчей: {updated_count}")
-        
-        for idx, h_item in enumerate(reversed(history), 1):
-            with st.expander(f"{h_item['overall_status']} | {h_item['match']} (🕒 {h_item.get('match_time_ufa', '—')})"):
-                st.write(f"**Время начала:** {h_item.get('match_time_ufa', '—')}")
-                st.write(f"**Исход:** {h_item['pick']} [{h_item.get('status_pick', '⏳')}]")
-                st.write(f"**Общий тотал:** {h_item['total']} [{h_item.get('status_total', '⏳')}]")
-                st.write(f"**Индивидуальный тотал:** {h_item.get('ind_total', '—')} [{h_item.get('status_ind_total', '⏳')}]")
-                st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
-                st.write(f"**Разбор:** {h_item['review']}")
-                    
+                            f"🔥 *МОЙ ВЫБОР:* `{my_pick
