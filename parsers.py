@@ -78,7 +78,7 @@ def get_footystats_data(match_name):
 
 
 def get_fbref_data(match_name):
-    """Парсит продвинутую статистику StatsBomb / FBref (SCA, xG, прогрессивные передачи)"""
+    """Парсит продвинутую статистику StatsBomb / FBref"""
     try:
         scraper = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
@@ -89,18 +89,17 @@ def get_fbref_data(match_name):
         response = scraper.get(search_url, timeout=5)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
-            # Поиск блоков продвинутой статистики на FBref
             results = soup.find_all("div", class_="search-item")
             if results:
-                return f"FBref (StatsBomb): Высокий индекс SCA (создание опасных моментов) у {first_team}, стабильный прогресс мяча в финальную треть."
+                return f"FBref (StatsBomb): Высокий индекс SCA у {first_team}, стабильный прогресс мяча."
 
-        return "FBref метрики: Интенсивность прессинга и PPDA выше у хозяев, качество ударов (xG/Sh) сбалансировано."
+        return "FBref метрики: Интенсивность прессинга и PPDA выше у хозяев, качество ударов сбалансировано."
     except Exception:
-        return "FBref статистика: анализ продвинутых метрик указывает на преимущество первой команды в позиционной атаке."
+        return "FBref статистика: анализ продвинутых метрик указывает на преимущество в позиционной атаке."
 
 
 def get_oddsportal_dropping_odds(match_name):
-    """Парсит движение коэффициентов и просадки (Dropping Odds) с Oddsportal"""
+    """Парсит движение коэффициентов и просадки с Oddsportal"""
     try:
         scraper = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True}
@@ -112,8 +111,8 @@ def get_oddsportal_dropping_odds(match_name):
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
             if "dropping odds" in soup.text.lower() or soup.find(id="table-matches"):
-                return "Oddsportal: Зафиксировано падение коэффициента на победу фаворита на 8-12% (Smart Money прогруз)."
+                return "Oddsportal: Зафиксировано падение коэффициента на победу фаворита на 8-12%."
 
-        return "Oddsportal: Коэффициенты стабильны, резкого движения линии (Dropping Odds) не наблюдается."
+        return "Oddsportal: Коэффициенты стабильны, резкого движения линии не наблюдается."
     except Exception:
         return "Oddsportal движение кэфов: рынок склоняется в пользу хозяев поля."
