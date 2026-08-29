@@ -3,3 +3,4 @@ requests
 Pillow
 beautifulsoup4
 openai
+cloudscraper
