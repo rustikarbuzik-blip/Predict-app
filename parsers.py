@@ -10,13 +10,13 @@ FOTMOB_HEADERS = {
     "Referer": "https://www.fotmob.com/"
 }
 
-# Словарь синонимов для популярных клубов
 TEAM_ALIASES = {
-    "сиэтл": "seattle", "чикаго": "chicago fire", "портленд": "portland timbers",
-    "остин": "austin fc", "сандиего": "san diego", "гэлакси": "la galaxy",
-    "интер майами": "inter miami", "монреаль": "cf montreal", "колорадо": "colorado rapids",
-    "солтлейк": "real salt lake", "миннесота": "minnesota united", "нэшвилл": "nashville sc",
-    "цинциннати": "fc cincinnati", "севилья": "sevilla", "атлетико": "atletico madrid"
+    "сиэтл": "seattle", "чикаго": "chicago", "портленд": "portland",
+    "остин": "austin", "сан диего": "san diego", "сандиего": "san diego",
+    "гэлакси": "galaxy", "интер майами": "inter miami", "майами": "inter miami",
+    "монреаль": "montreal", "колорадо": "colorado", "солт лейк": "salt lake",
+    "миннесота": "minnesota", "нэшвилл": "nashville", "цинциннати": "cincinnati",
+    "севилья": "sevilla", "атлетико": "atletico"
 }
 
 TRANSLIT_DICT = {
@@ -27,17 +27,19 @@ TRANSLIT_DICT = {
     'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
 }
 
-def normalize_query(name: str) -> str:
+def clean_search_term(name: str) -> str:
     cleaned = re.sub(r'[^\w\s]', '', name.lower()).strip()
-    for alias_ru, alias_en in TEAM_ALIASES.items():
-        if alias_ru in cleaned:
-            return alias_en
+    for ru_name, en_name in TEAM_ALIASES.items():
+        if ru_name in cleaned:
+            return en_name
     return "".join(TRANSLIT_DICT.get(c, c) for c in cleaned)
 
 @lru_cache(maxsize=128)
 def search_fotmob_team(team_name: str):
     try:
-        query = normalize_query(team_name)
+        clean = clean_search_term(team_name)
+        # Ищем по первому слову для точности
+        query = clean.split()[0] if clean.split() else clean
         url = f"https://www.fotmob.com/api/search/search?term={requests.utils.quote(query)}"
         res = requests.get(url, headers=FOTMOB_HEADERS, timeout=4)
         if res.status_code == 200:
@@ -62,13 +64,23 @@ def get_fotmob_team_stats(team_id: int):
     except Exception:
         return None
 
-def get_footystats_data(match_name: str):
-    teams_raw = match_name.replace("—", "-").replace("–", "-").split("-")
-    if len(teams_raw) < 2:
-        return None
+def split_teams(match_str: str):
+    """Надежный разделитель команд по любым разделителям"""
+    for sep in [" — ", " – ", " - ", " vs ", " vs. ", " v ", " против ", "—", "–", "-"]:
+        if sep in match_str:
+            parts = match_str.split(sep, 1)
+            return parts[0].strip(), parts[1].strip()
+    # Если разделитель не найден, пробуем разделить пополам
+    words = match_str.strip().split()
+    if len(words) >= 4:
+        mid = len(words) // 2
+        return " ".join(words[:mid]), " ".join(words[mid:])
+    return match_str.strip(), "Соперник"
 
-    t1_id, t1_real = search_fotmob_team(teams_raw[0])
-    t2_id, t2_real = search_fotmob_team(teams_raw[1])
+def get_footystats_data(match_name: str):
+    t1_name, t2_name = split_teams(match_name)
+    t1_id, t1_real = search_fotmob_team(t1_name)
+    t2_id, t2_real = search_fotmob_team(t2_name)
 
     if not t1_id and not t2_id:
         return None
@@ -76,18 +88,18 @@ def get_footystats_data(match_name: str):
     stats1 = get_fotmob_team_stats(t1_id)
     stats2 = get_fotmob_team_stats(t2_id)
 
-    def extract_info(stats, team_id, fallback_name):
+    def extract_info(stats, team_id, fallback):
         if not stats:
-            return f"{fallback_name} (нет данных)"
-        name = stats.get("details", {}).get("name", fallback_name)
+            return f"{fallback} (данные отсутствуют)"
+        name = stats.get("details", {}).get("name", fallback)
         rank, form_str, goals = "—", "—", "—"
         
         overview = stats.get("overview", {})
         table = overview.get("table", [{}])[0].get("data", {}).get("table", {}).get("all", [])
         for row in table:
             if row.get("id") == team_id:
-                rank = f"{row.get('idx')} место"
-                goals = f"разница {row.get('scoresStr')}"
+                rank = f"{row.get('idx')} место ({row.get('pts')} очк.)"
+                goals = f"голы {row.get('scoresStr')}"
                 break
         
         form = [f.get("result", "") for f in stats.get("form", []) if isinstance(f, dict)]
@@ -96,9 +108,7 @@ def get_footystats_data(match_name: str):
             
         return f"{name} [{rank}, {goals}, форма: {form_str}]"
 
-    info1 = extract_info(stats1, t1_id, teams_raw[0].strip())
-    info2 = extract_info(stats2, t2_id, teams_raw[1].strip())
-    return f"{info1} против {info2}"
+    return f"{extract_info(stats1, t1_id, t1_name)} vs {extract_info(stats2, t2_id, t2_name)}"
 
 def get_fbref_data(m): return None
 def get_corner_stats_data(m): return None
