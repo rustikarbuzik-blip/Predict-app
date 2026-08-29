@@ -419,4 +419,26 @@ with tab2:
                             f"📈 *Общий тотал голов:* `{total_pick}` [{item['status_total']}]\n"
                             f"⚽ *Индивидуальный тотал:* `{ind_total_pick}` [{item['status_ind_total']}]\n"
                             f"🚩 *Угловые:* `{corners_pick}` [{item['status_corners']}]\n"
-                            f"🔥 *МОЙ ВЫБОР:* `{my_pick
+                            f"🔥 *МОЙ ВЫБОР:* `{my_pick_val}` [{item['status_my_pick']}]\n"
+                            f"⭐ *Уверенность:* `{item['confidence']}`\n"
+                            f"🏟️ *Погода/Поле:* {item['weather']}\n\n"
+                            f"📝 *Разбор метрик:*\n{item['review']}"
+                        )
+                        
+                        edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
+                        updated_count += 1
+                    except Exception as e:
+                        continue
+                
+                update_history_in_db(history)
+                st.success(f"Готово! Обновлено матчей: {updated_count}")
+        
+        for idx, h_item in enumerate(reversed(history), 1):
+            with st.expander(f"{h_item['overall_status']} | {h_item['match']} (🕒 {h_item.get('match_time_ufa', '—')})"):
+                st.write(f"**Время начала:** {h_item.get('match_time_ufa', '—')}")
+                st.write(f"**Исход:** {h_item['pick']} [{h_item.get('status_pick', '⏳')}]")
+                st.write(f"**Общий тотал:** {h_item['total']} [{h_item.get('status_total', '⏳')}]")
+                st.write(f"**Индивидуальный тотал:** {h_item.get('ind_total', '—')} [{h_item.get('status_ind_total', '⏳')}]")
+                st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
+                st.write(f"**🔥 Мой выбор:** {h_item.get('my_pick', '—')} [{h_item.get('status_my_pick', '⏳')}]")
+                st.markdown(f"**Разбор:**\n\n{h_item['review']}")
