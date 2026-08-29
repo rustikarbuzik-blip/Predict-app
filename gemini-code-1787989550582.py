@@ -50,14 +50,14 @@ def ask_gemini(prompt, image=None):
         'models/gemini-3.0-flash'
     ]
     for model_name in candidate_models:
-        for attempt in range(3):
+        for attempt in range(4):
             try:
                 m = genai.GenerativeModel(model_name)
                 inputs = [prompt, image] if image else [prompt]
                 response = m.generate_content(inputs)
                 return response.text
             except Exception:
-                time.sleep(3)
+                time.sleep(5)
                 continue
     raise Exception("Ошибка обращения к Gemini API. Превышен лимит запросов или некорректный ключ.")
 
@@ -100,7 +100,8 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
                 
-                time.sleep(2)
+                # Увеличенная пауза (5 секунд) для защиты от превышения лимитов бесплатного API
+                time.sleep(5)
 
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
