@@ -275,49 +275,36 @@ with tab1:
             st.success(f"Анализ **{len(matches_list)}** матчей (Время генерации: {current_time_str} по Уфе)")
             accumulated_express_items = []
 
-            for i, match in enumerate(matches_list, 1):
+                        for i, match in enumerate(matches_list, 1):
                 with st.spinner(f"Анализ матча {i}/{len(matches_list)} ({match})..."):
-                    raw_arb = get_arbworld_moneyway(match)
-                    raw_corn = get_corner_stats_data(match)
-                    raw_footy = get_footystats_data(match)
-                    raw_fbref = get_fbref_data(match)
-                    raw_odds = get_oddsportal_dropping_odds(match)
+                    real_metrics = get_footystats_data(match)
 
-                    # Сборка доступных фактов
-                    available_data = []
-                    if raw_odds: available_data.append(f"Oddsportal: {raw_odds}")
-                    if raw_arb: available_data.append(f"Arbworld: {raw_arb}")
-                    if raw_footy: available_data.append(f"FootyStats: {raw_footy}")
-                    if raw_fbref: available_data.append(f"FBref: {raw_fbref}")
-                    if raw_corn: available_data.append(f"Corners: {raw_corn}")
-                    if manual_metrics.strip(): available_data.append(f"Пользовательские данные: {manual_metrics.strip()[:400]}")
-
-                    metrics_summary = "\n".join(available_data) if available_data else "Автоматические данные недоступны. Оцени по реальному профилю лиги и силе клубов."
+                    if real_metrics:
+                        metrics_summary = f"РЕАЛЬНАЯ СТАТИСТИКА ИЗ БАЗЫ OPTA:\n{real_metrics}"
+                    else:
+                        metrics_summary = "Данные по турнирной таблице не найдены. Оценивай строго по реальному классу клубов."
 
                     analysis_prompt = f"""
-                    Ты спортивный аналитик и каппер. Сделай независимый объективный расчет на матч: "{match}".
+                    Ты спортивный аналитик. Сделай объективный капперский прогноз на матч: "{match}".
                     Время запроса: {current_time_str} (Уфа, UTC+5).
 
-                    ВХОДЯЩИЕ ФАКТЫ И МЕТРИКИ:
+                    ВХОДНЫЕ ФАКТЫ:
                     {metrics_summary}
 
-                    ПРАВИЛА БАЛАНСА И ОБЪЕКТИВНОСТИ:
-                    1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО повторять одинаковый маркет на все матчи (нельзя везде ставить ИТБ или везде ставить ИТМ).
-                    2. Учитывай специфику турнира:
-                       - Верховые лиги (MLS, Бундеслига, Нидерланды): базовые тренды это ИТБ(1.5), Обе Забьют, ТБ 2.5, форы фаворитов.
-                       - Низовые лиги (Лига 2 Франция, Серия B, Ла Лига): базовые тренды это ИТМ(1.0/1.5), ТМ 2.5, плюсовые форы.
-                    3. Исход и ИТ выбирай строго под реальный стиль конкретно играющих команд.
-                    4. В РАЗБОРЕ укажи реальный стиль игры этих команд (атакующий/оборонительный, результативность в сезоне).
+                    СТРОГИЕ ПРАВИЛА:
+                    1. Опирайся на реальное место в таблице и текущую форму команд.
+                    2. Не штампуй одинаковые тоталы: если команда забивает мало или идет на серии поражений — выбирай ИТМ(1.0 / 1.5) или плюсовую фору соперника.
+                    3. Если явный фаворит играет в гостях — выбирай П2 или Ф2(0).
 
-                    ВЫДАЙ ОТВЕТ СТРОГО В ТАКОМ ФОРМАТЕ:
-                    ВРЕМЯ_МАТЧА: [Дата и время начала по Уфе (UTC+5)]
-                    СТАВКА: [*Название команды* фора или победа]
-                    ИТ: [*Название команды* ИТБ(1.5), ИТБ(1.0), ИТМ(1.5) или ИТМ(1.0)]
-                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка с высоким коэффициентом]
-                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х, Х2, плюсовая фора, ТМ/ТБ]
-                    ЛУЧШАЯ_СТАВКА: [Главный взвешенный выбор на этот матч]
+                    ФОРМАТ ВЫВОДА:
+                    ВРЕМЯ_МАТЧА: [Дата и время по Уфе]
+                    СТАВКА: [*Название* фора или победа]
+                    ИТ: [*Название* ИТБ(1.5), ИТБ(1.0), ИТМ(1.5) или ИТМ(1.0)]
+                    БОЛЕЕ_АГРЕССИВНО: [Рискованная ставка]
+                    ОСТОРОЖНАЯ_СТАВКА: [Надежный исход: 1Х, Х2, плюсовая фора]
+                    ЛУЧШАЯ_СТАВКА: [Главный выбор]
                     УВЕРЕННОСТЬ: [От ⭐⭐⭐ до ⭐⭐⭐⭐⭐]
-                    РАЗБОР: [2 кратких тезиса по реальному игровому стилю и результативности команд]
+                    РАЗБОР: [2 конкретных тезиса по фактической форме и положению в таблице]
                     """
 
                     try:
@@ -332,24 +319,21 @@ with tab1:
                         best_pick = parsed_data.get('ЛУЧШАЯ_СТАВКА', bet_main)
                         confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '⭐⭐⭐⭐')
                         review_val = parsed_data.get('РАЗБОР', 'Анализ завершен.')
-                        
-                        if confidence_str.count('⭐') >= 5:
-                            accumulated_express_items.append({
-                                "match": match,
-                                "time": match_time_ufa,
-                                "pick": best_pick,
-                                "confidence": confidence_str
-                            })
 
                         with st.expander(f"⚽ {i}. {match} | 🕒 {match_time_ufa}", expanded=(i == 1)):
+                            if real_metrics:
+                                st.info(f"📊 **Метрики из базы:** {real_metrics}")
+                            else:
+                                st.warning("⚠️ Команда не найдена в базе FotMob, расчет по внутренним знаниям.")
+
                             st.caption(f"🕒 **Начало:** {match_time_ufa} | **Уверенность:** {confidence_str}")
                             st.markdown(f"🎯 **Ставка:** `{bet_main}`")
                             st.markdown(f"⚽ **ИТ:** `{ind_total}`")
                             st.markdown(f"⚡ **Более агрессивно:** `{bet_agg}`")
                             st.markdown(f"🛡️ **Осторожная ставка:** `{bet_caut}`")
                             st.success(f"🔥 **Лучшая ставка на этот матч:** `{best_pick}`")
-                            st.info(f"📋 **Разбор метрик:**\n\n{review_val}")
-
+                            st.markdown(f"📋 **Разбор:**\n\n{review_val}")
+                    
                         tg_message_text = (
                             f"⚽ <b>Прогноз на матч: {escape_html(match)}</b>\n"
                             f"🕒 <b>Начало:</b> <code>{escape_html(match_time_ufa)}</code>\n\n"
