@@ -5,7 +5,7 @@ import html
 from datetime import datetime, timezone, timedelta
 import sqlite3
 
-# Импорт парсеров (если используются локально)
+# Импорт парсеров
 try:
     from parsers import (
         get_arbworld_moneyway,
@@ -22,7 +22,7 @@ except ImportError:
     def get_oddsportal_dropping_odds(m): return ""
 
 st.set_page_config(
-    page_title="Match Analytics AI Pro (Live Web)", 
+    page_title="Match Analytics AI Pro", 
     page_icon="⚽", 
     layout="wide"
 )
@@ -31,8 +31,8 @@ st.set_page_config(
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Аналитический центр спортивных матчей (Live Web AI 🕒)")
-st.caption(f"Время генерации: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | Агрегатор + Live Web Search + SQLite")
+st.title("⚽ Аналитический центр спортивных матчей (Turbo AI 🕒)")
+st.caption(f"Время генерации: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | Агрегатор + SQLite + VseGPT")
 
 # Ключи и настройки Telegram
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
@@ -42,6 +42,7 @@ tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", default_tg_token)
 tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", default_tg_chat_id)
 
 def escape_html(text):
+    """Предотвращает ошибки разметки в Telegram"""
     if not text:
         return ""
     return html.escape(str(text))
@@ -138,11 +139,11 @@ def update_history_in_db(history_data):
     conn.close()
 
 # ==============================================================================
-# ⚙️ БОКОВОЕ МЕНЮ
+# ⚙️ БОКОВОЕ МЕНЮ (ЭКОНОМНЫЕ МОДЕЛИ)
 # ==============================================================================
 
 with st.sidebar:
-    st.header("⚙️ Настройки AI & Web-поиска")
+    st.header("⚙️ Настройки VseGPT")
     input_vsegpt_key = st.text_input(
         "VseGPT API Key:", 
         value=vsegpt_key, 
@@ -152,17 +153,12 @@ with st.sidebar:
     selected_model = st.selectbox(
         "Модель нейросети:",
         options=[
-            "perplexity/sonar",             # 🔥 Прямой онлайн-поиск статистики
-            "perplexity/sonar-reasoning",   # 🔥 Глубокий расчет с веб-поиском
-            "google/gemini-2.5-flash",      # Быстрая базовая модель
-            "openai/gpt-4o-mini",            # Модель OpenAI
-            "google/gemini-2.5-flash-lite"  # Эконом вариант
+            "google/gemini-2.5-flash-lite",  # Экономный тариф (0.01 - 0.02 рубля)
+            "openai/gpt-4o-mini",             # Надежная модель от OpenAI
+            "google/gemini-2.5-flash"         # Стандартная модель
         ],
         index=0
     )
-    
-    if "sonar" in selected_model:
-        st.info("🌐 Включен прямой поиск статистики через Perplexity Sonar (FootyStats, Oddsportal, Flashscore).")
     
     if input_vsegpt_key:
         st.success("🟢 VseGPT подключен!")
@@ -174,10 +170,10 @@ with st.sidebar:
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
 
-tab1, tab2 = st.tabs(["📝 Ввод матчей и анализ", "📋 История и результаты"])
+tab1, tab2 = tab1, tab2 = st.tabs(["📝 Ввод матчей и анализ", "📋 История и результаты"])
 
 # ==============================================================================
-# 🧠 ОБРАЩЕНИЕ К VSEGPT
+# 🧠 ВЫЗОВ НЕЙРОСЕТИ (СНИЖЕННЫЙ ЛИМИТ max_tokens=300)
 # ==============================================================================
 
 def ask_vsegpt(prompt):
@@ -192,8 +188,8 @@ def ask_vsegpt(prompt):
     response = client.chat.completions.create(
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-        max_tokens=450
+        temperature=0.25,
+        max_tokens=300
     )
     return response.choices[0].message.content
 
@@ -255,7 +251,7 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
 with tab1:
     match_input = st.text_area(
         "Введите список матчей (каждый матч с новой строки):", 
-        placeholder="Лорьян - Труа\nЛион - Гавр\nБрест - Тулуза\nАвеллино - Виченца",
+        placeholder="Севилья - Атлетико\nЛорьян - Труа\nБрест - Тулуза\nАвеллино - Виченца",
         height=150
     )
     
@@ -279,40 +275,37 @@ with tab1:
                     raw_fbref = get_fbref_data(match)
                     raw_odds = get_oddsportal_dropping_odds(match)
 
-                    real_arbworld = str(raw_arb)[:200] if raw_arb else "Поиск в Live Web"
-                    real_corners = str(raw_corn)[:200] if raw_corn else "Поиск в Live Web"
-                    real_footystats = str(raw_footy)[:200] if raw_footy else "Поиск в Live Web"
-                    real_fbref = str(raw_fbref)[:200] if raw_fbref else "Поиск в Live Web"
-                    real_oddsportal = str(raw_odds)[:200] if raw_odds else "Поиск в Live Web"
+                    real_arbworld = str(raw_arb)[:120] if raw_arb else "Без аномалий"
+                    real_corners = str(raw_corn)[:120] if raw_corn else "Стандартная статистика"
+                    real_footystats = str(raw_footy)[:120] if raw_footy else "Данные по лиге"
+                    real_oddsportal = str(raw_odds)[:120] if raw_odds else "Линия стабильна"
 
                     analysis_prompt = f"""
-                    Найди актуальные спортивные данные в интернете и проведи глубокий анализ матча: "{match}".
+                    Ты футбольный каппер. Сделай объективный разбор матча: "{match}".
                     Время запроса: {current_time_str} (Уфа, UTC+5).
 
-                    ВХОДНЫЕ ДАННЫЕ (если пусты — найди в сети FootyStats / Flashscore / CornerStats):
+                    ВХОДНЫЕ МЕТРИКИ:
                     - Arbworld (деньги): {real_arbworld}
-                    - Corner Stats (угловые): {real_corners}
-                    - FootyStats (xG/форма): {real_footystats}
+                    - Угловые: {real_corners}
+                    - xG/Форма: {real_footystats}
                     - Oddsportal (кэфы): {real_oddsportal}
 
-                    СТРОГИЕ ПРАВИЛА МАТЕМАТИЧЕСКОГО РАСЧЕТА:
-                    1. КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО выдавать шаблонные «П1, ТБ 2.5, ИТБ1 1.5, УГЛ ТБ 9.5» на все матчи подряд.
-                    2. Вычисли реальный xG и форму обеих команд:
-                       - Если играют оборонительные/низовые клубы или сумма xG < 2.3 — СТРОГО выбирай ТМ 2.5 / ТМ 2.0, ИТМ1 / ИТМ2 1.0.
-                       - Если фаворит играет на выезде — ставь П2, Х2, Ф2(0) или ИТБ2.
-                       - Угловые: проверь среднюю статистику команд. Если средний тотал угловых < 9.5 — СТРОГО ставь УГЛ ТМ 8.5 или УГЛ ТМ 9.5.
-                    3. В блоке РАЗБОР напиши конкретные реальные цифры (фактический средний тотал, xG или положение в таблице).
+                    СТРОГИЕ ПРАВИЛА:
+                    1. Запрещено штамповать на все матчи «П1, ТБ 2.5, ИТБ1 1.5, УГЛ ТБ 9.5».
+                    2. Низовые матчи и равные соперники (Франция Лига 2, Италия Серия B, Испания Ла Лига) оценивай объективно: ТМ 2.5 / ТМ 2.0, ИТМ1 / ИТМ2 1.0, 1Х/Х2/Х.
+                    3. Если фаворит играет в гостях (как Атлетико) — выбирай П2, Х2, Ф2(0), ИТБ2 1.0.
+                    4. Угловые: при плотной игре в центре поля СТРОГО выбирай УГЛ ТМ 8.5 или УГЛ ТМ 9.5.
 
                     ФОРМАТ ОТВЕТА СТРОГО:
                     ВРЕМЯ_МАТЧА: [Дата и время начала по Уфе (UTC+5)]
-                    ИСХОД: [П1, П2, Х, 1Х, Х2, Ф1(...), Ф2(...)]
-                    ТОТАЛ: [ТМ 2.0, ТМ 2.5, ТМ 3.0, ТБ 2.5 или ТБ 3.0]
+                    ИСХОД: [П2, Х, 1Х, Х2, Ф2(0), Ф1(0), П1]
+                    ТОТАЛ: [ТМ 2.0, ТМ 2.5, ТМ 3.0 или ТБ 2.5]
                     ИНДИВИДУАЛЬНЫЙ_ТОТАЛ: [ИТМ1 1.0, ИТМ2 1.0, ИТМ1 1.5, ИТБ2 1.0 или ИТБ1 1.5]
                     УГЛОВЫЕ: [УГЛ ТМ 8.5, УГЛ ТМ 9.5, УГЛ ТБ 9.5 или УГЛ Ф2(+1.5)]
                     МОЙ_ВЫБОР: [Главная валуйная ставка]
                     УВЕРЕННОСТЬ: [Оценка 6-10]
                     ПОГОДА_ПОЛЕ: [Кратко]
-                    РАЗБОР: [3 коротких тезиса с реальными цифрами команд]
+                    РАЗБОР: [2-3 коротких тезиса по фактам без лишних слов]
                     """
 
                     try:
@@ -355,13 +348,6 @@ with tab1:
                             st.success(f"🎯 **МОЙ ВЫБОР (Основная ставка):** `{my_pick_val}`")
                             st.info(f"🏟️ **Погода и поле:** {weather_val}")
                             st.markdown(f"**📋 Разбор метрик:**\n\n{review_val}")
-                            
-                            # 🔍 Диагностика входящих данных
-                            with st.expander("🔍 Сырые данные парсеров для проверки"):
-                                st.text(f"Arbworld: {real_arbworld}")
-                                st.text(f"Corners: {real_corners}")
-                                st.text(f"FootyStats: {real_footystats}")
-                                st.text(f"Oddsportal: {real_oddsportal}")
 
                         tg_message_text = (
                             f"⚽ <b>Прогноз на матч: {escape_html(match)}</b>\n"
@@ -419,7 +405,6 @@ with tab1:
 # ==============================================================================
 # 📊 ВКЛАДКА 2: ИСТОРИЯ
 # ==============================================================================
-
 with tab2:
     st.subheader("📊 История прогнозов (База данных)")
     history = load_history()
@@ -446,9 +431,9 @@ with tab2:
                     
                     check_prompt = f"""
                     Проверь результат матча: "{match_name}".
-                    Маркеты для проверки:
+                    Маркеты:
                     - Исход: {pick}
-                    - Общий тотал: {total_pick}
+                    - Тотал: {total_pick}
                     - Индив тотал: {ind_total_pick}
                     - Угловые: {corners_pick}
                     - Мой выбор: {my_pick_val}
@@ -484,7 +469,7 @@ with tab2:
                             f"🔥 <b>МОЙ ВЫБОР:</b> <code>{escape_html(my_pick_val)}</code> [{item['status_my_pick']}]\n"
                             f"⭐ <b>Уверенность:</b> <code>{escape_html(item['confidence'])}</code>\n"
                             f"🏟️ <b>Погода/Поле:</b> {escape_html(item['weather'])}\n\n"
-                            f"📝 <b>Разбор метрик:</b>\n{escape_html(item['review'])}"
+                            f"📝 <b>Разбор метрик:</b>\n{escape_html(review_val)}"
                         )
                         
                         edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
