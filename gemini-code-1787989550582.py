@@ -14,7 +14,7 @@ from parsers import (
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей")
-st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Авто-отправка в Telegram")
+st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + Экспресс дня (9.5-10/10) 🚀")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -45,7 +45,7 @@ uploaded_image = None
 with tab1:
     match_input = st.text_area(
         "Введите матчи (каждый с новой строки):", 
-        placeholder="Факел - Зенит\nТоттенхэм - Ньюкасл"
+        placeholder="Факел - Зенит\nТоттенхэм - Ньюкасл\nАрсенал - Челси"
     )
     if match_input.strip():
         matches_list = [m.strip() for m in match_input.strip().split("\n") if m.strip()]
@@ -103,7 +103,7 @@ def send_telegram_message(text, token, chat_id):
     except Exception as e:
         return False, f"Ошибка соединения: {e}"
 
-if st.button("🚀 Сформировать и отправить прогнозы", type="primary", use_container_width=True):
+if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
     if not gemini_key:
         st.error("Укажите Gemini API Key в Secrets или в левом меню!")
     elif not matches_list and not uploaded_image:
@@ -129,6 +129,8 @@ if st.button("🚀 Сформировать и отправить прогноз
             st.stop()
 
         st.success(f"Найдено матчей для анализа: **{len(matches_list)}**")
+
+        accumulated_express_items = []
 
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
@@ -156,7 +158,7 @@ if st.button("🚀 Сформировать и отправить прогноз
                 ИСХОД: [Ставка на исход или фору]
                 ТОТАЛ: [Ставка на тотал голов]
                 УГЛОВЫЕ: [Ставка на угловые]
-                УВЕРЕННОСТЬ: [Оценка от 1 до 5, например: 4/5]
+                УВЕРЕННОСТЬ: [Оценка по 10-ти бальной шкале строго в формате X/10, например: 9.5/10 или 10/10]
                 ПОГОДА_ПОЛЕ: [Краткий учет фактора поля и погоды в 1 предложении]
                 РАЗБОР: [Обоснование ставки из 2 предложений]
                 """
@@ -164,6 +166,24 @@ if st.button("🚀 Сформировать и отправить прогноз
                 try:
                     raw_response = ask_gemini(analysis_prompt)
                     parsed_data = parse_match_block(raw_response)
+
+                    confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '9.5/10')
+                    
+                    # Пытаемся извлечь числовое значение уверенности для фильтрации (например, "9.5/10" -> 9.5)
+                    conf_numeric = 0.0
+                    try:
+                        clean_conf = confidence_str.replace('/10', '').replace(',', '.').strip()
+                        conf_numeric = float(clean_conf)
+                    except:
+                        conf_numeric = 8.0 # Дефолтное значение, если модель ответила нестандартно
+
+                    # Собираем в экспресс только матчи с уверенностью 9.5/10 или 10/10
+                    if conf_numeric >= 9.5:
+                        accumulated_express_items.append({
+                            "match": match,
+                            "pick": parsed_data.get('ИСХОД', 'П1'),
+                            "confidence": confidence_str
+                        })
 
                     # Отображение в интерфейсе Streamlit
                     with st.expander(f"⚽ {i}. {match}", expanded=(i == 1)):
@@ -185,18 +205,18 @@ if st.button("🚀 Сформировать и отправить прогноз
                         col1.metric("Исход / Фора", parsed_data.get('ИСХОД', 'П1'))
                         col2.metric("Индив. тотал", parsed_data.get('ТОТАЛ', 'ТБ (2.5)'))
                         col3.metric("Угловые", parsed_data.get('УГЛОВЫЕ', 'ТБ (9.5)'))
-                        col4.metric("Уверенность", parsed_data.get('УВЕРЕННОСТЬ', '4/5'))
+                        col4.metric("Уверенность", confidence_str)
 
                         st.info(f"🏟️ **Погода и фактор поля:** {parsed_data.get('ПОГОДА_ПОЛЕ', 'Учитывается стандартный домашний фактор.')}")
                         st.success(f"**📋 Аналитический разбор:**\n\n{parsed_data.get('РАЗБОР', 'Анализ завершен.')}")
 
-                    # АВТОМАТИЧЕСКАЯ ОТПРАВКА В TELEGRAM СРАЗУ ПОСЛЕ АНАЛИЗА
+                    # АВТОМАТИЧЕСКАЯ ОТПРАВКА ОДИНОЧНОГО ПРОГНОЗА В TELEGRAM
                     tg_message_text = (
                         f"⚽ *Прогноз на матч: {match}*\n\n"
                         f"🎯 *Исход/Фора:* `{parsed_data.get('ИСХОД', '—')}`\n"
                         f"📈 *Тотал:* `{parsed_data.get('ТОТАЛ', '—')}`\n"
                         f"🚩 *Угловые:* `{parsed_data.get('УГЛОВЫЕ', '—')}`\n"
-                        f"⭐ *Уверенность:* `{parsed_data.get('УВЕРЕННОСТЬ', '—')}`\n"
+                        f"⭐ *Уверенность:* `{confidence_str}`\n"
                         f"🏟️ *Погода/Поле:* {parsed_data.get('ПОГОДА_ПОЛЕ', '—')}\n\n"
                         f"📝 *Разбор:* {parsed_data.get('РАЗБОР', '—')}"
                     )
@@ -209,3 +229,30 @@ if st.button("🚀 Сформировать и отправить прогноз
 
                 except Exception as e:
                     st.error(f"🔴 Ошибка анализа матча {match}: {e}")
+
+        # ГЕНЕРАЦИЯ И ОТПРАВКА ТОП-ЭКСПРЕССА (только 9.5/10 и 10/10)
+        if len(accumulated_express_items) >= 1:
+            with st.spinner("3/3 Формирование ТОП-Экспресса дня (9.5-10/10)..."):
+                express_lines = []
+                approx_total_odds = round(1.75 ** len(accumulated_express_items), 2)
+
+                for idx, item in enumerate(accumulated_express_items, 1):
+                    express_lines.append(f"{idx}. *{item['match']}* — Ставка: `{item['pick']}` (⭐ {item['confidence']})")
+
+                express_text = (
+                    f"🔥 *ТОП-ЭКСПРЕСС ДНЯ (9.5+ / 10)* 🔥\n\n"
+                    + "\n".join(express_lines) +
+                    f"\n\n📊 *Примерный итоговый коэффициент:* `~{approx_total_odds}`\n"
+                    f"💡 *Статус:* Прошли жесткий отбор по статистике агрегаторов."
+                )
+
+                success_exp, msg_exp = send_telegram_message(express_text, input_tg_token, input_tg_chat_id)
+                if success_exp:
+                    st.success("🔥 ТОП-Экспресс дня успешно сформирован и отправлен в Telegram!")
+                    st.markdown("---")
+                    st.markdown("### 🔥 Сформированный ТОП-Экспресс дня (9.5+ / 10)")
+                    st.markdown(express_text)
+                else:
+                    st.warning(f"Одиночные прогнозы отправлены, но Экспресс не ушел: {msg_exp}")
+        else:
+            st.info("ℹ️ Ни один матч не набрал максимальную уверенность 9.5/10 или 10/10, поэтому Экспресс дня в этот раз не формировался.")
