@@ -40,24 +40,24 @@ with tab2:
         uploaded_image = Image.open(uploaded_file)
         st.image(uploaded_image, caption="Загруженный скриншот", width=400)
 
-# Функция для надежного распознавания с перебором моделей
 def ask_gemini_vision(image, prompt):
     candidate_models = [
-        'gemini-1.5-flash-latest',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
         'gemini-1.5-flash',
-        'models/gemini-1.5-flash',
-        'gemini-2.0-flash-exp'
+        'models/gemini-2.0-flash',
+        'models/gemini-1.5-flash'
     ]
-    last_error = None
+    errors = []
     for model_name in candidate_models:
         try:
             m = genai.GenerativeModel(model_name)
             response = m.generate_content([prompt, image])
             return response.text
         except Exception as e:
-            last_error = e
+            errors.append(f"{model_name}: {str(e)}")
             continue
-    raise last_error
+    raise Exception("\n".join(errors))
 
 if st.button("🚀 Сформировать прогноз", type="primary", use_container_width=True):
     if not gemini_key:
@@ -75,7 +75,7 @@ if st.button("🚀 Сформировать прогноз", type="primary", use
                         "Напиши только название спортивного матча с этой картинки (например: Арсенал - Челси)."
                     ).strip()
                 except Exception as e:
-                    st.error("Не удалось распознать картинку. Проверьте корректность API-ключа Gemini.")
+                    st.error(f"🔴 Детали ошибки от Google API:\n\n{e}")
                     st.stop()
 
             mock_data = {
