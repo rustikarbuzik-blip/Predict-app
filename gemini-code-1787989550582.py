@@ -5,6 +5,7 @@ import time
 import requests
 from datetime import datetime
 import sqlite3
+import re
 from parsers import (
     get_arbworld_moneyway, 
     get_corner_stats_data, 
@@ -15,8 +16,8 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (Multi-Key Pool 🛡️)")
-st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + Ротация ключей 🚀")
+st.title("⚽ Аналитический центр спортивных матчей (1500 RPD Safe 🛡️)")
+st.caption("Агрегатор данных + SQLite + Модели с высоким бесплатным лимитом")
 
 # Загрузка пула ключей из Secrets
 secret_keys = st.secrets.get("GEMINI_API_KEYS", [])
@@ -142,8 +143,13 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini_pool(prompt, image=None):
-    """Ротация моделей и ключей при ошибках 429"""
-    candidate_models = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.6-flash']
+    """Использует модели с лимитом до 1500 запросов в день и автоматическим retry"""
+    candidate_models = [
+        'gemini-2.0-flash', 
+        'gemini-1.5-flash', 
+        'gemini-2.0-flash-lite',
+        'gemini-1.5-flash-8b'
+    ]
     last_err = ""
 
     if not active_keys:
@@ -161,12 +167,17 @@ def ask_gemini_pool(prompt, image=None):
                 except Exception as e:
                     last_err = str(e)
                     if "429" in str(e) or "Quota" in str(e):
-                        time.sleep(2)
-                        break  # Пробуем следующий ключ или модель
+                        # Проверяем, указал ли Google время ожидания в секундах
+                        retry_seconds = 5
+                        match = re.search(r'retry in ([0-9]+(\.[0-9]+)?)s', str(e))
+                        if match:
+                            retry_seconds = min(int(float(match.group(1))) + 1, 15)
+                        time.sleep(retry_seconds)
+                        continue
                     else:
                         time.sleep(1)
                         continue
-    raise Exception(f"Все ключи исчерпали лимит. Ошибка: {last_err}")
+    raise Exception(f"Все модели исчерпали лимит. Ошибка: {last_err}")
 
 with tab3:
     st.subheader("📊 История прогнозов (База данных)")
