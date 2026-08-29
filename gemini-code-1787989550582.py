@@ -107,9 +107,8 @@ def update_history_in_db(history_data):
 with st.sidebar:
     st.header("⚙️ Настройки")
     keys_input = st.text_area(
-        "Gemini API Keys (через запятую или с новой строки):", 
-        value="\n".join(secret_keys) if secret_keys else "",
-        type="password"
+        "Gemini API Keys (каждый с новой строки или через запятую):", 
+        value="\n".join(secret_keys) if secret_keys else ""
     )
     active_keys = [k.strip() for k in keys_input.replace(",", "\n").split("\n") if k.strip()]
     
@@ -148,7 +147,7 @@ def ask_gemini_pool(prompt, image=None):
     last_err = ""
 
     if not active_keys:
-        raise Exception("Ключи API не указаны!")
+        raise Exception("Ключи API не указаны в настройках!")
 
     for key in active_keys:
         genai.configure(api_key=key)
