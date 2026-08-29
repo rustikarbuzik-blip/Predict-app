@@ -15,7 +15,7 @@ from parsers import (
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
 st.title("⚽ Аналитический центр спортивных матчей (Turbo Pro 🚀)")
-st.caption("Агрегатор данных + База данных SQLite + Ускоренный режим Gemini Pro")
+st.caption("Агрегатор данных + База данных SQLite + Актуальная модель Gemini Pro")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -111,7 +111,7 @@ with st.sidebar:
     st.header("🤖 Telegram Бот")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
-    st.success("⚡ Турбо-режим AI Pro активен!")
+    st.success("⚡ Режим AI Pro активен!")
 
 tab1, tab2, tab3 = st.tabs(["📝 Название матча(ей)", "📸 Скриншот линии", "📋 История и результаты"])
 matches_list = []
@@ -163,7 +163,7 @@ with tab3:
                     (Если идет или не начался, напиши PENDING)
                     """
                     try:
-                        m = genai.GenerativeModel('gemini-2.5-flash')
+                        m = genai.GenerativeModel('gemini-3.6-flash')
                         res = m.generate_content(check_prompt).text.strip().upper()
                         
                         if "PENDING" in res:
@@ -200,8 +200,8 @@ with tab3:
                 st.write(f"**Разбор:** {h_item['review']}")
 
 def ask_gemini(prompt, image=None):
-    # Используем самую быструю модель без лишних циклов ожидания за счет подписки Pro
-    m = genai.GenerativeModel('gemini-2.5-flash')
+    # Обновлено на актуальную модель gemini-3.6-flash согласно требованиям API
+    m = genai.GenerativeModel('gemini-3.6-flash')
     inputs = [prompt, image] if image else [prompt]
     response = m.generate_content(inputs)
     return response.text
@@ -267,7 +267,6 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/2 Анализ матча {i}/{len(matches_list)} ({match})..."):
                 
-                # Запросы к парсерам выполняются напрямую без пауз
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
                 real_footystats = get_footystats_data(match)
