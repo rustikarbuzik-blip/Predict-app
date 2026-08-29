@@ -41,12 +41,12 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=400)
 
 def ask_gemini_vision(image, prompt):
+    # Актуальные модели Google API
     candidate_models = [
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'models/gemini-2.0-flash',
-        'models/gemini-1.5-flash'
+        'gemini-3.6-flash',
+        'models/gemini-3.6-flash',
+        'gemini-3.0-flash',
+        'models/gemini-3.0-flash'
     ]
     errors = []
     for model_name in candidate_models:
