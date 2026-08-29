@@ -148,7 +148,6 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_vsegpt(prompt, image=None):
-    """Отправка запроса в VseGPT с оптимизацией веса и жестким лимитом токенов"""
     if not input_vsegpt_key:
         raise Exception("API ключ VseGPT не указан!")
 
@@ -158,12 +157,11 @@ def ask_vsegpt(prompt, image=None):
     )
 
     if image:
-        # Уменьшаем разрешение для экономии токенов и баланса
         img_copy = image.copy()
-        img_copy.thumbnail((1024, 1024))
+        img_copy.thumbnail((600, 600))
         
         buffered = io.BytesIO()
-        img_copy.save(buffered, format="JPEG", quality=85)
+        img_copy.save(buffered, format="JPEG", quality=65)
         img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
         messages = [
@@ -173,7 +171,10 @@ def ask_vsegpt(prompt, image=None):
                     {"type": "text", "text": prompt},
                     {
                         "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{img_b64}",
+                            "detail": "low"
+                        }
                     }
                 ]
             }
@@ -187,7 +188,7 @@ def ask_vsegpt(prompt, image=None):
         model=selected_model,
         messages=messages,
         temperature=0.3,
-        max_tokens=600  # Фиксированный лимит для защиты от ошибки 400 (budget reserve)
+        max_tokens=350
     )
     return response.choices[0].message.content
 
@@ -422,3 +423,4 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
         else:
             st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
+                
