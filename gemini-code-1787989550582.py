@@ -45,7 +45,7 @@ uploaded_image = None
 with tab1:
     match_input = st.text_area(
         "Введите матчи (каждый с новой строки):", 
-        placeholder="Факел - Зенит\nТоттенхэм - Ньюкасл\nАрсенал - Челси"
+        placeholder="Унион Берлин - Айнтрахт Ф\nФакел - Зенит"
     )
     if match_input.strip():
         matches_list = [m.strip() for m in match_input.strip().split("\n") if m.strip()]
@@ -57,6 +57,7 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
+    # Указываем модели по порядку приоритета (сначала 2.5-flash, так как на нее меньше лимитных нагрузок)
     candidate_models = [
         'gemini-2.5-flash',
         'models/gemini-2.5-flash',
@@ -65,7 +66,7 @@ def ask_gemini(prompt, image=None):
     ]
     last_error = ""
     for model_name in candidate_models:
-        for attempt in range(2):
+        for attempt in range(3): # Даем 3 попытки на каждую модель
             try:
                 m = genai.GenerativeModel(model_name)
                 inputs = [prompt, image] if image else [prompt]
@@ -73,9 +74,13 @@ def ask_gemini(prompt, image=None):
                 return response.text
             except Exception as e:
                 last_error = str(e)
-                time.sleep(2)
+                # Если уперлись в лимит 429, ждем дольше перед повтором
+                if "429" in str(e) or "Quota exceeded" in str(e):
+                    time.sleep(5)
+                else:
+                    time.sleep(2)
                 continue
-    raise Exception(f"Детали ошибки API: {last_error}")
+    raise Exception(f"Превышен лимит запросов (Quota 429). Подождите пару минут или обновите API-ключ. Детали: {last_error}")
 
 def parse_match_block(block_text):
     data = {}
@@ -135,7 +140,8 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
         for i, match in enumerate(matches_list, 1):
             with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
                 
-                time.sleep(3)
+                # Задержка между матчами, чтобы не превышать частоту запросов (Rate Limit)
+                time.sleep(4)
 
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
@@ -169,15 +175,13 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
 
                     confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '9.5/10')
                     
-                    # Пытаемся извлечь числовое значение уверенности для фильтрации (например, "9.5/10" -> 9.5)
                     conf_numeric = 0.0
                     try:
                         clean_conf = confidence_str.replace('/10', '').replace(',', '.').strip()
                         conf_numeric = float(clean_conf)
                     except:
-                        conf_numeric = 8.0 # Дефолтное значение, если модель ответила нестандартно
+                        conf_numeric = 8.0
 
-                    # Собираем в экспресс только матчи с уверенностью 9.5/10 или 10/10
                     if conf_numeric >= 9.5:
                         accumulated_express_items.append({
                             "match": match,
