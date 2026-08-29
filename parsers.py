@@ -1,7 +1,6 @@
 import requests
 import re
 import streamlit as st
-from datetime import datetime
 from functools import lru_cache
 
 # Получаем ключ API-Football из Secrets Streamlit
@@ -11,6 +10,7 @@ HEADERS = {
     "x-apisports-key": API_KEY
 }
 
+# Словарь синонимов для популярных клубов
 TEAM_ALIASES = {
     "сиэтл": "Seattle Sounders", "sounders": "Seattle Sounders",
     "чикаго": "Chicago Fire", "fire": "Chicago Fire",
@@ -36,6 +36,7 @@ TRANSLIT_DICT = {
 }
 
 def normalize_query(name: str) -> str:
+    """Очищает и нормализует имя команды для API поиска"""
     cleaned = re.sub(r'[^\w\s]', '', name.lower()).strip()
     for ru_name, en_name in TEAM_ALIASES.items():
         if ru_name in cleaned:
@@ -43,6 +44,7 @@ def normalize_query(name: str) -> str:
     return "".join(TRANSLIT_DICT.get(c, c) for c in cleaned)
 
 def split_teams(match_str: str):
+    """Разделяет строку матча на команду хозяев и гостей"""
     for sep in [" — ", " – ", " - ", " vs ", " vs. ", " v ", " против ", "—", "–", "-"]:
         if sep in match_str:
             parts = match_str.split(sep, 1)
@@ -55,6 +57,7 @@ def split_teams(match_str: str):
 
 @lru_cache(maxsize=128)
 def search_team_api(team_name: str):
+    """Поиск ID клуба в базе API-Football"""
     if not API_KEY:
         return None, None
     try:
@@ -72,69 +75,54 @@ def search_team_api(team_name: str):
 
 @lru_cache(maxsize=128)
 def get_team_recent_form(team_id: int):
-    """Получение реальных сыгранных матчей с фильтрацией по дате/сезону"""
+    """Надежное получение 5 последних сыгранных матчей команды"""
     if not team_id or not API_KEY:
         return "—"
     try:
-        current_year = datetime.now().year
-        # Запрашиваем матчи команды за текущий сезон до сегодняшней даты
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        url = f"{API_URL}/fixtures?team={team_id}&season={current_year}&to={today_str}&status=FT"
+        url = f"{API_URL}/fixtures?team={team_id}&last=5"
         res = requests.get(url, headers=HEADERS, timeout=5)
-        
-        fixtures = []
         if res.status_code == 200:
             fixtures = res.json().get("response", [])
+            if not fixtures:
+                return "Данные отсутствуют"
 
-        # Если сезон только начался или переходный год, проверяем предыдущий
-        if not fixtures:
-            url_prev = f"{API_URL}/fixtures?team={team_id}&season={current_year - 1}&status=FT"
-            res_prev = requests.get(url_prev, headers=HEADERS, timeout=5)
-            if res_prev.status_code == 200:
-                fixtures = res_prev.json().get("response", [])
+            form_letters = []
+            goals_scored = 0
+            goals_conceded = 0
 
-        # Берем 5 последних завершенных встреч
-        last_5 = fixtures[-5:] if fixtures else []
+            for f in fixtures:
+                teams = f.get("teams", {})
+                goals = f.get("goals", {})
+                
+                hg = goals.get("home") if goals.get("home") is not None else 0
+                ag = goals.get("away") if goals.get("away") is not None else 0
+                
+                is_home = (teams.get("home", {}).get("id") == team_id)
+                my_goals = hg if is_home else ag
+                opp_goals = ag if is_home else hg
+                
+                goals_scored += my_goals
+                goals_conceded += opp_goals
 
-        if not last_5:
-            return "Статистика в процессе обновления"
+                if my_goals > opp_goals:
+                    form_letters.append("W")
+                elif my_goals == opp_goals:
+                    form_letters.append("D")
+                else:
+                    form_letters.append("L")
 
-        form_letters = []
-        goals_scored = 0
-        goals_conceded = 0
+            form_str = "".join(form_letters) if form_letters else "—"
+            games_count = max(len(fixtures), 1)
+            avg_scored = round(goals_scored / games_count, 1)
+            avg_conceded = round(goals_conceded / games_count, 1)
 
-        for f in last_5:
-            teams = f.get("teams", {})
-            goals = f.get("goals", {})
-            
-            hg = goals.get("home") if goals.get("home") is not None else 0
-            ag = goals.get("away") if goals.get("away") is not None else 0
-            
-            is_home = (teams.get("home", {}).get("id") == team_id)
-            my_goals = hg if is_home else ag
-            opp_goals = ag if is_home else hg
-            
-            goals_scored += my_goals
-            goals_conceded += opp_goals
-
-            if my_goals > opp_goals:
-                form_letters.append("W")
-            elif my_goals == opp_goals:
-                form_letters.append("D")
-            else:
-                form_letters.append("L")
-
-        form_str = "".join(form_letters)
-        games_count = max(len(last_5), 1)
-        avg_scored = round(goals_scored / games_count, 1)
-        avg_conceded = round(goals_conceded / games_count, 1)
-
-        return f"Форма: {form_str} | Мячи в 5 играх: {goals_scored}:{goals_conceded} (в ср. {avg_scored} заб. / {avg_conceded} проп.)"
+            return f"Форма: {form_str} | Мячи: {goals_scored}:{goals_conceded} (в ср. {avg_scored} заб. / {avg_conceded} проп.)"
+        return "—"
     except Exception:
         return "—"
 
 def get_footystats_data(match_name: str):
-    """Сбор статистики по матчу"""
+    """Сбор статистики по матчу для передачи в нейросеть"""
     t1_input, t2_input = split_teams(match_name)
     t1_id, t1_real = search_team_api(t1_input)
     t2_id, t2_real = search_team_api(t2_input)
