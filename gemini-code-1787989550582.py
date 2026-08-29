@@ -16,10 +16,10 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (1500 RPD Safe 🛡️)")
-st.caption("Агрегатор данных + SQLite + Модели с высоким бесплатным лимитом")
+st.title("⚽ Аналитический центр спортивных матчей (Flash-Lite Pool 🚀)")
+st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + Ротация ключей")
 
-# Загрузка пула ключей из Secrets
+# Загрузка ключей из Secrets
 secret_keys = st.secrets.get("GEMINI_API_KEYS", [])
 if not secret_keys and "GEMINI_API_KEY" in st.secrets:
     secret_keys = [st.secrets["GEMINI_API_KEY"]]
@@ -108,7 +108,7 @@ def update_history_in_db(history_data):
 with st.sidebar:
     st.header("⚙️ Настройки")
     keys_input = st.text_area(
-        "Gemini API Keys (каждый с новой строки или через запятую):", 
+        "Gemini API Keys (каждый с новой строки):", 
         value="\n".join(secret_keys) if secret_keys else ""
     )
     active_keys = [k.strip() for k in keys_input.replace(",", "\n").split("\n") if k.strip()]
@@ -143,12 +143,11 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini_pool(prompt, image=None):
-    """Использует модели с лимитом до 1500 запросов в день и автоматическим retry"""
+    """Использует только актуальные активные модели с высоким лимитом (Flash-Lite)"""
     candidate_models = [
-        'gemini-2.0-flash', 
-        'gemini-1.5-flash', 
-        'gemini-2.0-flash-lite',
-        'gemini-1.5-flash-8b'
+        'gemini-2.5-flash-lite',
+        'gemini-3.5-flash-lite',
+        'gemini-2.5-flash'
     ]
     last_err = ""
 
@@ -166,10 +165,14 @@ def ask_gemini_pool(prompt, image=None):
                     return response.text
                 except Exception as e:
                     last_err = str(e)
-                    if "429" in str(e) or "Quota" in str(e):
-                        # Проверяем, указал ли Google время ожидания в секундах
-                        retry_seconds = 5
-                        match = re.search(r'retry in ([0-9]+(\.[0-9]+)?)s', str(e))
+                    err_str = str(e)
+                    # Если модель не найдена (404), переходим к следующей модели сразу
+                    if "404" in err_str or "not found" in err_str:
+                        break
+                    # Если лимит 429, ждем рекомендованное API время
+                    if "429" in err_str or "Quota" in err_str:
+                        retry_seconds = 6
+                        match = re.search(r'retry in ([0-9]+(\.[0-9]+)?)s', err_str)
                         if match:
                             retry_seconds = min(int(float(match.group(1))) + 1, 15)
                         time.sleep(retry_seconds)
@@ -177,7 +180,7 @@ def ask_gemini_pool(prompt, image=None):
                     else:
                         time.sleep(1)
                         continue
-    raise Exception(f"Все модели исчерпали лимит. Ошибка: {last_err}")
+    raise Exception(f"Все доступные модели исчерпали квоту. Ошибка: {last_err}")
 
 with tab3:
     st.subheader("📊 История прогнозов (База данных)")
