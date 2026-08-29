@@ -40,6 +40,25 @@ with tab2:
         uploaded_image = Image.open(uploaded_file)
         st.image(uploaded_image, caption="Загруженный скриншот", width=400)
 
+# Функция для надежного распознавания с перебором моделей
+def ask_gemini_vision(image, prompt):
+    candidate_models = [
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-flash',
+        'models/gemini-1.5-flash',
+        'gemini-2.0-flash-exp'
+    ]
+    last_error = None
+    for model_name in candidate_models:
+        try:
+            m = genai.GenerativeModel(model_name)
+            response = m.generate_content([prompt, image])
+            return response.text
+        except Exception as e:
+            last_error = e
+            continue
+    raise last_error
+
 if st.button("🚀 Сформировать прогноз", type="primary", use_container_width=True):
     if not gemini_key:
         st.error("Укажите Gemini API Key в Secrets или в левом меню!")
@@ -47,20 +66,17 @@ if st.button("🚀 Сформировать прогноз", type="primary", use
         st.warning("Укажите название матча или загрузите скриншот!")
     else:
         genai.configure(api_key=gemini_key)
-        
-        # Корректный блок выбора модели с правильными отступами
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-        except Exception:
-            model = genai.GenerativeModel('gemini-1.5-flash')
 
         with st.spinner("1/2 Распознавание и сбор данных..."):
             if uploaded_image and not match_name:
-                response = model.generate_content([
-                    "Напиши только название спортивного матча с этой картинки (например: Арсенал - Челси).", 
-                    uploaded_image
-                ])
-                match_name = response.text.strip()
+                try:
+                    match_name = ask_gemini_vision(
+                        uploaded_image, 
+                        "Напиши только название спортивного матча с этой картинки (например: Арсенал - Челси)."
+                    ).strip()
+                except Exception as e:
+                    st.error("Не удалось распознать картинку. Проверьте корректность API-ключа Gemini.")
+                    st.stop()
 
             mock_data = {
                 "footystats": "Форма 80%, xG 2.10, Средний тотал матча 3.1",
