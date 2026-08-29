@@ -119,7 +119,7 @@ with st.sidebar:
         index=0
     )
     if input_vsegpt_key:
-        st.success("🟢 VseGPT подключен (без лимитов)!")
+        st.success("🟢 VseGPT подключен!")
     else:
         st.warning("⚠️ Введите API ключ VseGPT")
 
@@ -148,7 +148,7 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_vsegpt(prompt, image=None):
-    """Отправка запроса в VseGPT через протокол OpenAI"""
+    """Отправка запроса в VseGPT с оптимизацией веса и жестким лимитом токенов"""
     if not input_vsegpt_key:
         raise Exception("API ключ VseGPT не указан!")
 
@@ -158,8 +158,12 @@ def ask_vsegpt(prompt, image=None):
     )
 
     if image:
+        # Уменьшаем разрешение для экономии токенов и баланса
+        img_copy = image.copy()
+        img_copy.thumbnail((1024, 1024))
+        
         buffered = io.BytesIO()
-        image.save(buffered, format="JPEG")
+        img_copy.save(buffered, format="JPEG", quality=85)
         img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
         messages = [
@@ -182,7 +186,8 @@ def ask_vsegpt(prompt, image=None):
     response = client.chat.completions.create(
         model=selected_model,
         messages=messages,
-        temperature=0.3
+        temperature=0.3,
+        max_tokens=600  # Фиксированный лимит для защиты от ошибки 400 (budget reserve)
     )
     return response.choices[0].message.content
 
@@ -266,7 +271,7 @@ def send_telegram_message(text, token, chat_id):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=3)
+        res = requests.post(url, json=payload, timeout=5)
         if res.status_code == 200:
             return True, "Успешно", res.json()["result"]["message_id"]
         return False, res.text, None
@@ -279,7 +284,7 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
     url = f"https://api.telegram.org/bot{token}/editMessageText"
     payload = {"chat_id": chat_id, "message_id": message_id, "text": new_text, "parse_mode": "Markdown"}
     try:
-        res = requests.post(url, json=payload, timeout=3)
+        res = requests.post(url, json=payload, timeout=5)
         return res.status_code == 200
     except:
         return False
@@ -417,4 +422,3 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
         else:
             st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
-                    
