@@ -43,12 +43,12 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
-    # Актуальные модели согласно требованиям API Google
+    # Актуальные стабильные модели для API v1beta
     candidate_models = [
-        'gemini-3.6-flash',
-        'models/gemini-3.6-flash',
-        'gemini-3.0-flash',
-        'models/gemini-3.0-flash'
+        'gemini-2.5-flash',
+        'models/gemini-2.5-flash',
+        'gemini-3.5-flash',
+        'models/gemini-3.5-flash'
     ]
     last_error = ""
     for model_name in candidate_models:
@@ -160,4 +160,4 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
                         st.success(f"**📋 Аналитический разбор:**\n\n{parsed_data.get('РАЗБОР', 'Анализ завершен.')}")
 
                 except Exception as e:
-                    st.error(f"🔴 Ошибка анализа матча {match}: {e}")
+                    st.error(f"🔴 Ошибка анализа матча {match}: {e}")                     
