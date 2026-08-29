@@ -198,12 +198,12 @@ if st.button("🚀 Сформировать и отправить прогноз
                         f"🚩 *Угловые:* `{parsed_data.get('УГЛОВЫЕ', '—')}`\n"
                         f"⭐ *Уверенность:* `{parsed_data.get('УВЕРЕННОСТЬ', '—')}`\n"
                         f"🏟️ *Погода/Поле:* {parsed_data.get('ПОГОДА_ПОЛЕ', '—')}\n\n"
-                        f"📝 *Разбор:* {parsed_data.get('РАЗБрон', parsed_data.get('РАЗБОР', '—'))}"
+                        f"📝 *Разбор:* {parsed_data.get('РАЗБОР', '—')}"
                     )
 
                     success, msg = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
                     if success:
-                        st.toast(f"📤 Прогноз по матчу «{match» отправлен в Telegram!", icon="✅")
+                        st.toast(f"📤 Прогноз по матчу {match} отправлен в Telegram!", icon="✅")
                     else:
                         st.error(f"Не удалось отправить в Telegram матча {match}: {msg}")
 
