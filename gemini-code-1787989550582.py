@@ -50,7 +50,7 @@ if st.button("🚀 Сформировать прогноз", type="primary", use
             if uploaded_image_bytes and not match_name:
                 base64_image = base64.b64encode(uploaded_image_bytes).decode('utf-8')
                 vision_res = client.chat.completions.create(
-                    model="gpt-4o",
+                    model="gpt-4o-mini",
                     messages=[{
                         "role": "user",
                         "content": [
