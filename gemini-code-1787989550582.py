@@ -43,22 +43,23 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
-    # Переход на стабильную и актуальную модель gemini-2.0-flash
     candidate_models = [
         'gemini-2.0-flash',
         'models/gemini-2.0-flash'
     ]
+    last_error = ""
     for model_name in candidate_models:
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 m = genai.GenerativeModel(model_name)
                 inputs = [prompt, image] if image else [prompt]
                 response = m.generate_content(inputs)
                 return response.text
-            except Exception:
-                time.sleep(3)
+            except Exception as e:
+                last_error = str(e)
+                time.sleep(2)
                 continue
-    raise Exception("Ошибка обращения к Gemini API. Проверьте правильность введенного ключа.")
+    raise Exception(f"Детали ошибки API: {last_error}")
 
 def parse_match_block(block_text):
     data = {}
