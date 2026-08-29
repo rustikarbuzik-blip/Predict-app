@@ -517,4 +517,4 @@ with tab2:
                 st.write(f"**Индивидуальный тотал:** {h_item.get('ind_total', '—')} [{h_item.get('status_ind_total', '⏳')}]")
                 st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
                 st.write(f"**🔥 Мой выбор:** {h_item.get('my_pick', '—')} [{h_item.get('status_my_pick', '⏳')}]")
-                st.markdown(f"**Разбор:**\n\n{h_item['review']}"):
+                st.markdown(f"**Разбор:**\n\n{h_item['review']}")
