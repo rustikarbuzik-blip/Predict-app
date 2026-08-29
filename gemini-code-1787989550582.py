@@ -6,8 +6,6 @@ from datetime import datetime, timezone, timedelta
 import sqlite3
 import re
 
-from parsers import split_teams
-
 st.set_page_config(
     page_title="Match Analytics AI Pro", 
     page_icon="⚽", 
@@ -18,10 +16,10 @@ st.set_page_config(
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Аналитический центр спортивных матчей")
-st.caption(f"Время генерации: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа, UTC+5)** | Оптимизированный AI Core")
+st.title("⚽ Автоматический генератор прогнозов")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Self-Contained AI Core")
 
-# Ключи и настройки Telegram
+# Ключи и настройки по умолчанию
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 default_tg_token = "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU"
 default_tg_chat_id = "500635733"
@@ -33,6 +31,23 @@ def escape_html(text):
         return ""
     return html.escape(str(text))
 
+def split_teams(match_str: str):
+    """Надежный внутренний разделитель команд"""
+    cleaned = match_str.strip()
+    for sep in [" — ", " – ", " - ", " vs ", " vs. ", " v ", " против ", "—", "–", "-"]:
+        if sep in cleaned:
+            parts = cleaned.split(sep, 1)
+            t1, t2 = parts[0].strip(), parts[1].strip()
+            if t1 and t2:
+                return t1, t2
+    words = cleaned.split()
+    if len(words) == 2:
+        return words[0], words[1]
+    elif len(words) >= 4:
+        mid = len(words) // 2
+        return " ".join(words[:mid]), " ".join(words[mid:])
+    return cleaned, "Соперник"
+
 # ==============================================================================
 # 🗄️ БАЗА ДАННЫХ SQLITE
 # ==============================================================================
@@ -41,7 +56,7 @@ def init_db():
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS history_v2 (
+        CREATE TABLE IF NOT EXISTS history_v3 (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             match TEXT,
             match_time_ufa TEXT,
@@ -70,7 +85,7 @@ init_db()
 def load_history():
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("SELECT match, match_time_ufa, bet_main, ind_total, bet_aggressive, bet_cautious, best_pick, confidence, review, message_id, overall_status, status_main, status_ind_total, status_aggressive, status_cautious, status_best_pick, date FROM history_v2")
+    cursor.execute("SELECT match, match_time_ufa, bet_main, ind_total, bet_aggressive, bet_cautious, best_pick, confidence, review, message_id, overall_status, status_main, status_ind_total, status_aggressive, status_cautious, status_best_pick, date FROM history_v3")
     rows = cursor.fetchall()
     conn.close()
     
@@ -93,7 +108,7 @@ def save_match_to_db(item):
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO history_v2 (match, match_time_ufa, bet_main, ind_total, bet_aggressive, bet_cautious, best_pick, confidence, review, message_id, overall_status, status_main, status_ind_total, status_aggressive, status_cautious, status_best_pick, date)
+        INSERT INTO history_v3 (match, match_time_ufa, bet_main, ind_total, bet_aggressive, bet_cautious, best_pick, confidence, review, message_id, overall_status, status_main, status_ind_total, status_aggressive, status_cautious, status_best_pick, date)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         item.get("match"), item.get("match_time_ufa", "—"),
@@ -110,10 +125,10 @@ def save_match_to_db(item):
 def update_history_in_db(history_data):
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM history_v2")
+    cursor.execute("DELETE FROM history_v3")
     for item in history_data:
         cursor.execute('''
-            INSERT INTO history_v2 (match, match_time_ufa, bet_main, ind_total, bet_aggressive, bet_cautious, best_pick, confidence, review, message_id, overall_status, status_main, status_ind_total, status_aggressive, status_cautious, status_best_pick, date)
+            INSERT INTO history_v3 (match, match_time_ufa, bet_main, ind_total, bet_aggressive, bet_cautious, best_pick, confidence, review, message_id, overall_status, status_main, status_ind_total, status_aggressive, status_cautious, status_best_pick, date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             item.get("match"), item.get("match_time_ufa", "—"),
@@ -133,96 +148,75 @@ def update_history_in_db(history_data):
 
 with st.sidebar:
     st.header("⚙️ Настройки AI")
-    input_vsegpt_key = st.text_input(
-        "VseGPT API Key:", 
-        value=vsegpt_key, 
-        type="password"
-    )
-    
+    input_vsegpt_key = st.text_input("VseGPT API Key:", value=vsegpt_key, type="password")
     selected_model = st.selectbox(
-        "Модель (от самых дешевых):",
+        "Модель:",
         options=[
-            "google/gemini-2.5-flash-lite",  # Минимальный расход токенов
-            "deepseek/deepseek-chat",        # Высокая точность, дешевая цена
+            "google/gemini-2.5-flash-lite",
+            "deepseek/deepseek-chat",
             "openai/gpt-4o-mini",
             "google/gemini-2.5-flash"
         ],
         index=0
     )
-    
     if input_vsegpt_key:
-        st.success("🟢 VseGPT подключен!")
+        st.success("🟢 Подключено")
     else:
-        st.warning("⚠️ Введите API ключ VseGPT")
+        st.warning("⚠️ Введите ключ")
 
     st.markdown("---")
-    st.header("🤖 Telegram Бот")
+    st.header("🤖 Telegram")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
 
-tab1, tab2 = st.tabs(["📝 Ввод матчей и анализ", "📋 История и результаты"])
+tab1, tab2 = st.tabs(["📝 Ввод и Анализ", "📋 История"])
 
 # ==============================================================================
-# 🧠 ОБРАБОТКА AI И ОЧИСТКА ВЫВОДА
+# 🧠 AI ВЫЗОВ С ЗАЩИТОЙ ОТ ПОВТОРОВ
 # ==============================================================================
 
 def ask_vsegpt(prompt):
     if not input_vsegpt_key:
-        raise Exception("API ключ VseGPT не указан!")
-
-    client = OpenAI(
-        api_key=input_vsegpt_key,
-        base_url="https://api.vsegpt.ru/v1"
-    )
-
-    # Ограничение max_tokens для жесткой экономии баланса
+        raise Exception("API ключ не указан!")
+    client = OpenAI(api_key=input_vsegpt_key, base_url="https://api.vsegpt.ru/v1")
+    
+    # frequency_penalty принудительно запрещает модели штамповать одинаковые маркеты (ИТБ 1.5)
     response = client.chat.completions.create(
         model=selected_model,
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-        max_tokens=220
+        temperature=0.5,
+        frequency_penalty=0.7,
+        max_tokens=250
     )
     return response.choices[0].message.content
 
-def sanitize_bet_text(text: str) -> str:
-    """Очищает строку от кавычек и форматирования"""
+def sanitize_text(text: str) -> str:
     if not text:
         return "—"
-    cleaned = text.replace("`", "").replace('"', '').replace("'", "").strip()
-    return cleaned if cleaned else "—"
+    return text.replace("`", "").replace('"', '').replace("'", "").strip()
 
 def parse_match_block(block_text):
     data = {}
     lines = block_text.split('\n')
     current_key = None
-    
     for line in lines:
-        line_clean = line.strip()
-        if ':' in line_clean:
-            parts = line_clean.split(':', 1)
-            candidate_key = parts[0].strip().upper()
-            if candidate_key in [
-                'ВРЕМЯ_МАТЧА', 'СТАВКА', 'ИТ', 'БОЛЕЕ_АГРЕССИВНО', 
-                'ОСТОРОЖНАЯ_СТАВКА', 'ЛУЧШАЯ_СТАВКА', 'УВЕРЕННОСТЬ', 'РАЗБОР'
-            ]:
-                current_key = candidate_key
-                data[current_key] = sanitize_bet_text(parts[1])
+        l_clean = line.strip()
+        if ':' in l_clean:
+            parts = l_clean.split(':', 1)
+            key = parts[0].strip().upper()
+            if key in ['ВРЕМЯ_МАТЧА', 'СТАВКА', 'ИТ', 'БОЛЕЕ_АГРЕССИВНО', 'ОСТОРОЖНАЯ_СТАВКА', 'ЛУЧШАЯ_СТАВКА', 'УВЕРЕННОСТЬ', 'РАЗБОР']:
+                current_key = key
+                data[current_key] = sanitize_text(parts[1])
                 continue
-        if current_key == 'РАЗБОР' and line_clean:
-            data[current_key] += " " + line_clean
-            
+        if current_key == 'РАЗБОР' and l_clean:
+            data[current_key] += " " + l_clean
     return data
-
-# ==============================================================================
-# 📨 TELEGRAM API
-# ==============================================================================
 
 def send_telegram_message(text, token, chat_id):
     if not token or not chat_id:
-        return False, "Не заполнены настройки Telegram.", None
+        return False, "Нет настроек Telegram", None
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    safe_text = text[:4000] if len(text) > 4000 else text
-    payload = {"chat_id": chat_id, "text": safe_text, "parse_mode": "HTML"}
+    payload = {"chat_id": chat_id, "text": text[:4000], "parse_mode": "HTML"}
     try:
         res = requests.post(url, json=payload, timeout=5)
         if res.status_code == 200:
@@ -231,12 +225,11 @@ def send_telegram_message(text, token, chat_id):
     except Exception as e:
         return False, str(e), None
 
-def edit_telegram_message_full(token, chat_id, message_id, new_text):
+def edit_telegram_message(token, chat_id, message_id, text):
     if not token or not chat_id or not message_id:
         return False
     url = f"https://api.telegram.org/bot{token}/editMessageText"
-    safe_text = new_text[:4000] if len(new_text) > 4000 else new_text
-    payload = {"chat_id": chat_id, "message_id": message_id, "text": safe_text, "parse_mode": "HTML"}
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text[:4000], "parse_mode": "HTML"}
     try:
         res = requests.post(url, json=payload, timeout=5)
         return res.status_code == 200
@@ -244,216 +237,120 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
         return False
 
 # ==============================================================================
-# 📋 ВКЛАДКА 1: АНАЛИЗ МАТЧЕЙ
+# 📝 ВКЛАДКА 1: АНАЛИЗ
 # ==============================================================================
 
 with tab1:
     match_input = st.text_area(
-        "Введите список матчей (каждый матч с новой строки):", 
-        placeholder="Интер Майами - Монреаль\nСиэтл Саундерс - Чикаго Файр\nСевилья - Атлетико Мадрид",
+        "Список матчей (каждый с новой строки):", 
+        placeholder="Интер Майами - Монреаль\nСиэтл Саундерс - Чикаго Файр\nАрсенал - Челси",
         height=130
     )
     
-    if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
-        matches_list = [m.strip() for m in match_input.strip().split("\n") if m.strip()] if match_input.strip() else []
+    if st.button("🚀 Сформировать прогнозы и Экспресс", type="primary", use_container_width=True):
+        matches = [m.strip() for m in match_input.strip().split("\n") if m.strip()]
         
         if not input_vsegpt_key:
-            st.error("Укажите VseGPT API Key в боковом меню!")
-        elif not matches_list:
-            st.warning("Введите хотя бы один матч в текстовое поле!")
+            st.error("Укажите VseGPT API Key!")
+        elif not matches:
+            st.warning("Введите хотя бы один матч!")
         else:
-            current_time_str = now_ufa.strftime('%d.%m.%Y %H:%M')
-            st.success(f"Анализ **{len(matches_list)}** матчей (Время: {current_time_str} по Уфе)")
-            accumulated_express_items = []
+            time_str = now_ufa.strftime('%d.%m.%Y %H:%M')
+            st.success(f"Анализ матчей: {len(matches)}")
+            express_items = []
 
-            for i, match in enumerate(matches_list, 1):
-                home_team, away_team = split_teams(match)
-                with st.spinner(f"Анализ матча {i}/{len(matches_list)} ({home_team} — {away_team})..."):
+            for i, match in enumerate(matches, 1):
+                home, away = split_teams(match)
+                with st.spinner(f"Анализ {i}/{len(matches)} ({home} — {away})..."):
 
-                    # Сжатый и экономичный промпт (экономит до 70% токенов)
-                    analysis_prompt = f"""
-                    Матч: {home_team} (хозяева) vs {away_team} (гости). Время: {current_time_str} (Уфа).
-                    Проанализируй баланс сил. Запрещены сокращения П1/П2/ИТ1/1Х. Всегда пиши полное имя команды.
+                    prompt = f"""
+                    Ты профессиональный каппер. Проанализируй матч:
+                    Хозяева: {home} | Гости: {away}. Время: {time_str} (Уфа).
 
-                    Выдай строго по шаблону:
-                    ВРЕМЯ_МАТЧА: {current_time_str}
-                    РАЗБОР: [2 кратких предложения о форме и силе клубов]
-                    СТАВКА: [*Команда* победа / фора]
-                    ИТ: [*Команда* ИТБ / ИТМ]
-                    БОЛЕЕ_АГРЕССИВНО: [*Команда* победа + тотал или фора]
-                    ОСТОРОЖНАЯ_СТАВКА: [*Команда* 1X / X2 или тотал]
-                    ЛУЧШАЯ_СТАВКА: [Главный выбор, строго согласованный с разбором]
+                    ПРАВИЛА АНАЛИЗА И МАРКЕТОВ:
+                    1. Избегай шаблонов! Подбирай разные рынки в зависимости от силы клубов: используй ИТМ, ИТБ, форы (0, +1.5, -1), ТМ или ТБ индивидуально для каждого матча.
+                    2. Запрещены сокращения П1/П2/ИТ1. Всегда пиши название команды.
+
+                    ВЫДАЙ СТРОГО ПО ШАБЛОНУ:
+                    ВРЕМЯ_МАТЧА: {time_str}
+                    РАЗБОР: [2 предложения: анализ текущей формы и результативности]
+                    СТАВКА: [{home} или {away} победа / фора]
+                    ИТ: [{home} или {away} ИТБ/ИТМ с точным значением]
+                    БОЛЕЕ_АГРЕССИВНО: [{home} или {away} с форой / победа + тотал / ОЗ]
+                    ОСТОРОЖНАЯ_СТАВКА: [{home} 1X / {away} X2 / плюсовая фора / тотал]
+                    ЛУЧШАЯ_СТАВКА: [Главный выбор каппера, строго из разбора]
                     УВЕРЕННОСТЬ: [⭐⭐⭐⭐ или ⭐⭐⭐⭐⭐]
                     """
 
                     try:
-                        raw_response = ask_vsegpt(analysis_prompt)
-                        parsed_data = parse_match_block(raw_response)
+                        raw = ask_vsegpt(prompt)
+                        data = parse_match_block(raw)
 
-                        match_time_ufa = parsed_data.get('ВРЕМЯ_МАТЧА', current_time_str)
-                        bet_main = parsed_data.get('СТАВКА', f"{home_team} победа")
-                        ind_total = parsed_data.get('ИТ', f"{home_team} ИТБ(1.0)")
-                        bet_agg = parsed_data.get('БОЛЕЕ_АГРЕССИВНО', f"{home_team} победа + ТБ(2.5)")
-                        bet_caut = parsed_data.get('ОСТОРОЖНАЯ_СТАВКА', f"{home_team} 1X")
-                        best_pick = parsed_data.get('ЛУЧШАЯ_СТАВКА', bet_main)
-                        confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '⭐⭐⭐⭐')
-                        review_val = parsed_data.get('РАЗБОР', 'Анализ игрового баланса команд завершен.')
+                        m_time = data.get('ВРЕМЯ_МАТЧА', time_str)
+                        b_main = data.get('СТАВКА', f"{home} победа")
+                        i_tot = data.get('ИТ', f"{home} ИТБ(1.0)")
+                        b_agg = data.get('БОЛЕЕ_АГРЕССИВНО', f"{home} фора(-1)")
+                        b_caut = data.get('ОСТОРОЖНАЯ_СТАВКА', f"{home} 1X")
+                        b_best = data.get('ЛУЧШАЯ_СТАВКА', b_main)
+                        conf = data.get('УВЕРЕННОСТЬ', '⭐⭐⭐⭐')
+                        review = data.get('РАЗБОР', 'Анализ завершен.')
 
-                        if confidence_str.count('⭐') >= 5:
-                            accumulated_express_items.append({
-                                "match": f"{home_team} — {away_team}",
-                                "time": match_time_ufa,
-                                "pick": best_pick,
-                                "confidence": confidence_str
-                            })
+                        if conf.count('⭐') >= 5:
+                            express_items.append({"match": f"{home} — {away}", "time": m_time, "pick": b_best, "conf": conf})
 
-                        with st.expander(f"⚽ {i}. {home_team} — {away_team} | 🕒 {match_time_ufa}", expanded=(i == 1)):
-                            st.caption(f"🕒 **Начало:** {match_time_ufa} | **Уверенность:** {confidence_str}")
-                            st.markdown(f"🎯 **Ставка:** `{bet_main}`")
-                            st.markdown(f"⚽ **ИТ:** `{ind_total}`")
-                            st.markdown(f"⚡ **Более агрессивно:** `{bet_agg}`")
-                            st.markdown(f"🛡️ **Осторожная ставка:** `{bet_caut}`")
-                            st.success(f"🔥 **Лучшая ставка на этот матч:** `{best_pick}`")
-                            st.markdown(f"📋 **Разбор:**\n\n{review_val}")
+                        with st.expander(f"⚽ {i}. {home} — {away} | {m_time}", expanded=(i == 1)):
+                            st.caption(f"Уверенность: {conf}")
+                            st.markdown(f"🎯 **Ставка:** `{b_main}`")
+                            st.markdown(f"⚽ **ИТ:** `{i_tot}`")
+                            st.markdown(f"⚡ **Агрессивно:** `{b_agg}`")
+                            st.markdown(f"🛡️ **Осторожно:** `{b_caut}`")
+                            st.success(f"🔥 **Лучшая ставка:** `{b_best}`")
+                            st.markdown(f"📋 **Разбор:**\n\n{review}")
 
-                        tg_message_text = (
-                            f"⚽ <b>Прогноз на матч: {escape_html(home_team)} — {escape_html(away_team)}</b>\n"
-                            f"🕒 <b>Начало:</b> <code>{escape_html(match_time_ufa)}</code>\n\n"
-                            f"🎯 <b>Ставка:</b> <code>{escape_html(bet_main)}</code> [⏳]\n"
-                            f"⚽ <b>ИТ:</b> <code>{escape_html(ind_total)}</code> [⏳]\n"
-                            f"⚡ <b>Более агрессивно:</b> <code>{escape_html(bet_agg)}</code> [⏳]\n"
-                            f"🛡️ <b>Осторожная ставка:</b> <code>{escape_html(bet_caut)}</code> [⏳]\n"
-                            f"🔥 <b>Лучшая ставка на этот матч:</b> <code>{escape_html(best_pick)}</code> [⏳]\n"
-                            f"⭐ <b>Уверенность:</b> {confidence_str}\n\n"
-                            f"📝 <b>Разбор:</b>\n{escape_html(review_val)}"
+                        tg_text = (
+                            f"⚽ <b>Матч: {escape_html(home)} — {escape_html(away)}</b>\n"
+                            f"🕒 <b>Начало:</b> <code>{escape_html(m_time)}</code>\n\n"
+                            f"🎯 <b>Ставка:</b> <code>{escape_html(b_main)}</code> [⏳]\n"
+                            f"⚽ <b>ИТ:</b> <code>{escape_html(i_tot)}</code> [⏳]\n"
+                            f"⚡ <b>Агрессивно:</b> <code>{escape_html(b_agg)}</code> [⏳]\n"
+                            f"🛡️ <b>Осторожно:</b> <code>{escape_html(b_caut)}</code> [⏳]\n"
+                            f"🔥 <b>Лучшая ставка:</b> <code>{escape_html(b_best)}</code> [⏳]\n"
+                            f"⭐ <b>Уверенность:</b> {conf}\n\n"
+                            f"📝 <b>Разбор:</b>\n{escape_html(review)}"
                         )
 
-                        success, msg, msg_id = send_telegram_message(tg_message_text, input_tg_token, input_tg_chat_id)
+                        success, _, msg_id = send_telegram_message(tg_text, input_tg_token, input_tg_chat_id)
                         if success and msg_id:
-                            st.toast(f"📤 Прогноз отправлен в Telegram!", icon="✅")
-                            match_item = {
-                                "match": f"{home_team} — {away_team}", "match_time_ufa": match_time_ufa,
-                                "bet_main": bet_main, "ind_total": ind_total,
-                                "bet_aggressive": bet_agg, "bet_cautious": bet_caut,
-                                "best_pick": best_pick, "confidence": confidence_str,
-                                "review": review_val, "message_id": msg_id,
+                            save_match_to_db({
+                                "match": f"{home} — {away}", "match_time_ufa": m_time,
+                                "bet_main": b_main, "ind_total": i_tot,
+                                "bet_aggressive": b_agg, "bet_cautious": b_caut,
+                                "best_pick": b_best, "confidence": conf,
+                                "review": review, "message_id": msg_id,
                                 "overall_status": "⏳ Ожидание",
-                                "status_main": "⏳", "status_ind_total": "⏳",
-                                "status_aggressive": "⏳", "status_cautious": "⏳",
-                                "status_best_pick": "⏳",
                                 "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            }
-                            save_match_to_db(match_item)
-                        else:
-                            st.error(f"Ошибка Telegram: {msg}")
-
+                            })
                     except Exception as e:
-                        st.error(f"🔴 Ошибка анализа {match}: {e}")
+                        st.error(f"Ошибка по матчу {match}: {e}")
 
-            if len(accumulated_express_items) >= 1:
-                with st.spinner("Формирование ТОП-Экспресса..."):
-                    express_lines = []
-                    approx_total_odds = round(1.75 ** len(accumulated_express_items), 2)
-
-                    for idx, item in enumerate(accumulated_express_items, 1):
-                        express_lines.append(f"{idx}. <b>{escape_html(item['match'])}</b> (🕒 <code>{escape_html(item['time'])}</code>) — Выбор: <code>{escape_html(item['pick'])}</code> ({item['confidence']})")
-
-                    express_text = (
-                        f"🔥 <b>ТОП-ЭКСПРЕСС ДНЯ (⭐⭐⭐⭐⭐)</b> 🔥\n\n"
-                        + "\n".join(express_lines) +
-                        f"\n\n📊 <b>Примерный итоговый коэффициент:</b> <code>~{approx_total_odds}</code>\n"
-                        f"💡 <b>Статус:</b> Отобраны матчи с максимальной уверенностью."
-                    )
-
-                    send_telegram_message(express_text, input_tg_token, input_tg_chat_id)
-                    st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
-            else:
-                st.info("ℹ️ Нет матчей с уверенностью ⭐⭐⭐⭐⭐ для Экспресса дня.")
+            if express_items:
+                express_lines = [f"{idx}. <b>{escape_html(it['match'])}</b> — Выбор: <code>{escape_html(it['pick'])}</code>" for idx, it in enumerate(express_items, 1)]
+                express_text = "🔥 <b>ТОП-ЭКСПРЕСС ДНЯ (⭐⭐⭐⭐⭐)</b> 🔥\n\n" + "\n".join(express_lines)
+                send_telegram_message(express_text, input_tg_token, input_tg_chat_id)
+                st.success("🔥 Экспресс дня отправлен в Telegram!")
 
 # ==============================================================================
-# 📊 ВКЛАДКА 2: ИСТОРИЯ
+# 📋 ВКЛАДКА 2: ИСТОРИЯ
 # ==============================================================================
 
 with tab2:
-    st.subheader("📊 История прогнозов (База данных)")
+    st.subheader("📊 История и статусы")
     history = load_history()
-    
     if not history:
-        st.info("История пуста. Сформируйте прогнозы.")
+        st.info("История пуста.")
     else:
-        if st.button("🔄 Проверить результаты по каждому маркету"):
-            with st.spinner("Проверяем фактические итоги матчей..."):
-                updated_count = 0
-                
-                for item in history:
-                    if item.get("overall_status") != "⏳ Ожидание":
-                        continue
-                    
-                    match_name = item["match"]
-                    match_time_ufa = item.get("match_time_ufa", "—")
-                    b_main = item["bet_main"]
-                    i_total = item.get("ind_total", "—")
-                    b_agg = item["bet_aggressive"]
-                    b_caut = item["bet_cautious"]
-                    b_best = item.get("best_pick", "—")
-                    msg_id = item["message_id"]
-                    
-                    check_prompt = f"""
-                    Проверь результат матча: "{match_name}".
-                    Маркеты:
-                    - Ставка: {b_main}
-                    - ИТ: {i_total}
-                    - Более агрессивно: {b_agg}
-                    - Осторожная ставка: {b_caut}
-                    - Лучшая ставка: {b_best}
-
-                    Ответь СТРОГО:
-                    СТАВКА: [WIN/LOSS]
-                    ИТ: [WIN/LOSS]
-                    БОЛЕЕ_АГРЕССИВНО: [WIN/LOSS]
-                    ОСТОРОЖНАЯ_СТАВКА: [WIN/LOSS]
-                    ЛУЧШАЯ_СТАВКА: [WIN/LOSS]
-                    (Если идет или не начался, напиши PENDING)
-                    """
-                    try:
-                        res = ask_vsegpt(check_prompt).upper()
-                        
-                        if "PENDING" in res:
-                            continue
-
-                        item["status_main"] = "✅" if "СТАВКА: WIN" in res else "❌"
-                        item["status_ind_total"] = "✅" if "ИТ: WIN" in res else "❌"
-                        item["status_aggressive"] = "✅" if "БОЛЕЕ_АГРЕССИВНО: WIN" in res else "❌"
-                        item["status_cautious"] = "✅" if "ОСТОРОЖНАЯ_СТАВКА: WIN" in res else "❌"
-                        item["status_best_pick"] = "✅" if "ЛУЧШАЯ_СТАВКА: WIN" in res else "❌"
-                        item["overall_status"] = "🎯 Завершено"
-
-                        updated_msg_text = (
-                            f"⚽ <b>Прогноз на матч: {escape_html(match_name)}</b>\n"
-                            f"🕒 <b>Начало:</b> <code>{escape_html(match_time_ufa)}</code>\n\n"
-                            f"🎯 <b>Ставка:</b> <code>{escape_html(b_main)}</code> [{item['status_main']}]\n"
-                            f"⚽ <b>ИТ:</b> <code>{escape_html(i_total)}</code> [{item['status_ind_total']}]\n"
-                            f"⚡ <b>Более агрессивно:</b> <code>{escape_html(b_agg)}</code> [{item['status_aggressive']}]\n"
-                            f"🛡️ <b>Осторожная ставка:</b> <code>{escape_html(b_caut)}</code> [{item['status_cautious']}]\n"
-                            f"🔥 <b>Лучшая ставка на этот матч:</b> <code>{escape_html(b_best)}</code> [{item['status_best_pick']}]\n"
-                            f"⭐ <b>Уверенность:</b> {item['confidence']}\n\n"
-                            f"📝 <b>Разбор:</b>\n{escape_html(item['review'])}"
-                        )
-                        
-                        edit_telegram_message_full(input_tg_token, input_tg_chat_id, msg_id, updated_msg_text)
-                        updated_count += 1
-                    except Exception:
-                        continue
-                
-                update_history_in_db(history)
-                st.success(f"Готово! Обновлено матчей: {updated_count}")
-        
-        for idx, h_item in enumerate(reversed(history), 1):
-            with st.expander(f"{h_item['overall_status']} | {h_item['match']} (🕒 {h_item.get('match_time_ufa', '—')})"):
-                st.write(f"**Время начала:** {h_item.get('match_time_ufa', '—')}")
-                st.write(f"**Ставка:** {h_item['bet_main']} [{h_item.get('status_main', '⏳')}]")
-                st.write(f"**ИТ:** {h_item.get('ind_total', '—')} [{h_item.get('status_ind_total', '⏳')}]")
-                st.write(f"**Более агрессивно:** {h_item.get('bet_aggressive', '—')} [{h_item.get('status_aggressive', '⏳')}]")
-                st.write(f"**Осторожная ставка:** {h_item.get('bet_cautious', '—')} [{h_item.get('status_cautious', '⏳')}]")
-                st.write(f"**🔥 Лучшая ставка:** {h_item.get('best_pick', '—')} [{h_item.get('status_best_pick', '⏳')}]")
-                st.markdown(f"**Разбор:**\n\n{h_item['review']}")
+        for h in reversed(history):
+            with st.expander(f"{h['overall_status']} | {h['match']}"):
+                st.write(f"**Ставка:** {h['bet_main']} [{h.get('status_main', '⏳')}]")
+                st.write(f"**ИТ:** {h['bet_aggressive']}")
+                st.markdown(f"**Разбор:**\n\n{h['review']}")
