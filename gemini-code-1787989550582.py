@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
+import time
 import requests
 from datetime import datetime
 import sqlite3
@@ -14,8 +15,8 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (Turbo Pro 🚀)")
-st.caption("Агрегатор данных + База данных SQLite + Актуальная модель Gemini Pro")
+st.title("⚽ Аналитический центр спортивных матчей (Smart Free Safe 🛡️)")
+st.caption("Агрегатор данных + База данных SQLite + Защита от лимитов API")
 
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -111,7 +112,7 @@ with st.sidebar:
     st.header("🤖 Telegram Бот")
     input_tg_token = st.text_input("Bot Token:", value=tg_token, type="password")
     input_tg_chat_id = st.text_input("Chat ID:", value=tg_chat_id)
-    st.success("⚡ Режим AI Pro активен!")
+    st.info("🛡️ Защита от лимитов (429) активна")
 
 tab1, tab2, tab3 = st.tabs(["📝 Название матча(ей)", "📸 Скриншот линии", "📋 История и результаты"])
 matches_list = []
@@ -139,7 +140,7 @@ with tab3:
         st.info("История пуста. Сформируйте прогнозы.")
     else:
         if st.button("🔄 Проверить результаты по каждому маркету"):
-            with st.spinner("Быстрая проверка результатов матчей..."):
+            with st.spinner("Проверка результатов матчей..."):
                 genai.configure(api_key=gemini_key)
                 updated_count = 0
                 
@@ -199,12 +200,23 @@ with tab3:
                 st.write(f"**Угловые:** {h_item['corners']} [{h_item.get('status_corners', '⏳')}]")
                 st.write(f"**Разбор:** {h_item['review']}")
 
-def ask_gemini(prompt, image=None):
-    # Обновлено на актуальную модель gemini-3.6-flash согласно требованиям API
+def ask_gemini_with_retry(prompt, image=None):
+    """Функция автоматического обхода лимитов: при ошибке 429 сама ждет и повторяет запрос"""
     m = genai.GenerativeModel('gemini-3.6-flash')
     inputs = [prompt, image] if image else [prompt]
-    response = m.generate_content(inputs)
-    return response.text
+    
+    for attempt in range(5):
+        try:
+            response = m.generate_content(inputs)
+            return response.text
+        except Exception as e:
+            if "429" in str(e) or "Quota" in str(e):
+                # Если уперлись в лимит, ждем 8 секунд и пробуем снова (лимит сбрасывается)
+                time.sleep(8)
+                continue
+            else:
+                raise e
+    raise Exception("Превышен лимит запросов. Подождите пару минут и попробуйте снова.")
 
 def parse_match_block(block_text):
     data = {}
@@ -238,7 +250,7 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
     except:
         return False
 
-if st.button("🚀 Сформировать прогнозы и Экспресс дня (Turbo)", type="primary", use_container_width=True):
+if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
     if not gemini_key:
         st.error("Укажите Gemini API Key!")
     elif not matches_list and not uploaded_image:
@@ -246,11 +258,11 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
     else:
         genai.configure(api_key=gemini_key)
 
-        with st.spinner("1/2 Быстрое распознавание матчей..."):
+        with st.spinner("1/2 Распознавание матчей..."):
             if uploaded_image and not matches_list:
                 try:
                     ocr_prompt = "Найди на скриншоте матчи в формате: Команда 1 - Команда 2. Верни только список."
-                    raw_ocr = ask_gemini(ocr_prompt, uploaded_image)
+                    raw_ocr = ask_gemini_with_retry(ocr_prompt, uploaded_image)
                     matches_list = [m.strip().replace("*", "") for m in raw_ocr.strip().split("\n") if "-" in m or "—" in m]
                 except Exception as e:
                     st.error(f"🔴 Ошибка чтения скриншота: {e}")
@@ -287,7 +299,7 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 """
 
                 try:
-                    raw_response = ask_gemini(analysis_prompt)
+                    raw_response = ask_gemini_with_retry(analysis_prompt)
                     parsed_data = parse_match_block(raw_response)
 
                     confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '9.5/10')
