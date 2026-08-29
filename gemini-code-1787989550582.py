@@ -47,10 +47,12 @@ if st.button("🚀 Сформировать прогноз", type="primary", use
         st.warning("Укажите название матча или загрузите скриншот!")
     else:
         genai.configure(api_key=gemini_key)
+        
+        # Корректный блок выбора модели с правильными отступами
         try:
-    model = genai.GenerativeModel('models/gemini-2.0-flash')
-except Exception:
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.0-flash')
+        except Exception:
+            model = genai.GenerativeModel('gemini-1.5-flash')
 
         with st.spinner("1/2 Распознавание и сбор данных..."):
             if uploaded_image and not match_name:
