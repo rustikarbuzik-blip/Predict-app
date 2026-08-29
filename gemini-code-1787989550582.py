@@ -1,11 +1,11 @@
 import streamlit as st
-import google.generativeai as genai
+from openai import OpenAI
 from PIL import Image
-import time
 import requests
+import base64
+import io
 from datetime import datetime
 import sqlite3
-import re
 from parsers import (
     get_arbworld_moneyway, 
     get_corner_stats_data, 
@@ -16,13 +16,10 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (Flash-Lite Pool 🚀)")
-st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + Ротация ключей")
+st.title("⚽ Аналитический центр спортивных матчей (VseGPT Unlimited 🚀)")
+st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + VseGPT API")
 
-# Загрузка ключей из Secrets
-secret_keys = st.secrets.get("GEMINI_API_KEYS", [])
-if not secret_keys and "GEMINI_API_KEY" in st.secrets:
-    secret_keys = [st.secrets["GEMINI_API_KEY"]]
+vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 
 default_tg_token = "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU"
 default_tg_chat_id = "500635733"
@@ -106,17 +103,25 @@ def update_history_in_db(history_data):
     conn.close()
 
 with st.sidebar:
-    st.header("⚙️ Настройки")
-    keys_input = st.text_area(
-        "Gemini API Keys (каждый с новой строки):", 
-        value="\n".join(secret_keys) if secret_keys else ""
+    st.header("⚙️ Настройки VseGPT")
+    input_vsegpt_key = st.text_input(
+        "VseGPT API Key:", 
+        value=vsegpt_key, 
+        type="password"
     )
-    active_keys = [k.strip() for k in keys_input.replace(",", "\n").split("\n") if k.strip()]
-    
-    if active_keys:
-        st.success(f"🟢 Активно ключей в пуле: {len(active_keys)}")
+    selected_model = st.selectbox(
+        "Модель нейросети:",
+        options=[
+            "google/gemini-2.5-flash",
+            "google/gemini-2.0-flash",
+            "openai/gpt-4o-mini"
+        ],
+        index=0
+    )
+    if input_vsegpt_key:
+        st.success("🟢 VseGPT подключен (без лимитов)!")
     else:
-        st.warning("⚠️ Введите хотя бы один Gemini API Key")
+        st.warning("⚠️ Введите API ключ VseGPT")
 
     st.markdown("---")
     st.header("🤖 Telegram Бот")
@@ -142,45 +147,44 @@ with tab2:
         uploaded_image = Image.open(uploaded_file)
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
-def ask_gemini_pool(prompt, image=None):
-    """Использует только актуальные активные модели с высоким лимитом (Flash-Lite)"""
-    candidate_models = [
-        'gemini-2.5-flash-lite',
-        'gemini-3.5-flash-lite',
-        'gemini-2.5-flash'
-    ]
-    last_err = ""
+def ask_vsegpt(prompt, image=None):
+    """Отправка запроса в VseGPT через протокол OpenAI"""
+    if not input_vsegpt_key:
+        raise Exception("API ключ VseGPT не указан!")
 
-    if not active_keys:
-        raise Exception("Ключи API не указаны в настройках!")
+    client = OpenAI(
+        api_key=input_vsegpt_key,
+        base_url="https://api.vsegpt.ru/v1"
+    )
 
-    for key in active_keys:
-        genai.configure(api_key=key)
-        for model_name in candidate_models:
-            for attempt in range(2):
-                try:
-                    m = genai.GenerativeModel(model_name)
-                    inputs = [prompt, image] if image else [prompt]
-                    response = m.generate_content(inputs)
-                    return response.text
-                except Exception as e:
-                    last_err = str(e)
-                    err_str = str(e)
-                    # Если модель не найдена (404), переходим к следующей модели сразу
-                    if "404" in err_str or "not found" in err_str:
-                        break
-                    # Если лимит 429, ждем рекомендованное API время
-                    if "429" in err_str or "Quota" in err_str:
-                        retry_seconds = 6
-                        match = re.search(r'retry in ([0-9]+(\.[0-9]+)?)s', err_str)
-                        if match:
-                            retry_seconds = min(int(float(match.group(1))) + 1, 15)
-                        time.sleep(retry_seconds)
-                        continue
-                    else:
-                        time.sleep(1)
-                        continue
-    raise Exception(f"Все доступные модели исчерпали квоту. Ошибка: {last_err}")
+    if image:
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+                    }
+                ]
+            }
+        ]
+    else:
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+
+    response = client.chat.completions.create(
+        model=selected_model,
+        messages=messages,
+        temperature=0.3
+    )
+    return response.choices[0].message.content
 
 with tab3:
     st.subheader("📊 История прогнозов (База данных)")
@@ -213,7 +217,7 @@ with tab3:
                     (Если идет или не начался, напиши PENDING)
                     """
                     try:
-                        res = ask_gemini_pool(check_prompt).upper()
+                        res = ask_vsegpt(check_prompt).upper()
                         
                         if "PENDING" in res:
                             continue
@@ -281,16 +285,16 @@ def edit_telegram_message_full(token, chat_id, message_id, new_text):
         return False
 
 if st.button("🚀 Сформировать прогнозы и Экспресс дня", type="primary", use_container_width=True):
-    if not active_keys:
-        st.error("Укажите хотя бы один Gemini API Key!")
+    if not input_vsegpt_key:
+        st.error("Укажите VseGPT API Key!")
     elif not matches_list and not uploaded_image:
         st.warning("Укажите матчи или загрузите скриншот!")
     else:
-        with st.spinner("1/2 Распознавание матчей..."):
+        with st.spinner("1/2 Распознавание матчей через VseGPT..."):
             if uploaded_image and not matches_list:
                 try:
-                    ocr_prompt = "Найди на скриншоте ВСЕ спортивные матчи в формате: Команда 1 - Команда 2. Верни только список матчей."
-                    raw_ocr = ask_gemini_pool(ocr_prompt, uploaded_image)
+                    ocr_prompt = "Найди на скриншоте ВСЕ спортивные матчи в формате: Команда 1 - Команда 2. Верни только список матчей, каждый с новой строки."
+                    raw_ocr = ask_vsegpt(ocr_prompt, uploaded_image)
                     matches_list = [m.strip().replace("*", "") for m in raw_ocr.strip().split("\n") if "-" in m or "—" in m]
                 except Exception as e:
                     st.error(f"🔴 Ошибка чтения скриншота: {e}")
@@ -334,7 +338,7 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 """
 
                 try:
-                    raw_response = ask_gemini_pool(analysis_prompt)
+                    raw_response = ask_vsegpt(analysis_prompt)
                     parsed_data = parse_match_block(raw_response)
 
                     confidence_str = parsed_data.get('УВЕРЕННОСТЬ', '9.5/10')
@@ -413,4 +417,4 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
         else:
             st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
-                
+                    
