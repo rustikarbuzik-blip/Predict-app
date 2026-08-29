@@ -16,7 +16,7 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (VseGPT Unlimited 🚀)")
+st.title("⚽ Аналитический центр спортивных матчей (VseGPT Free-Tier Ready 🚀)")
 st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + VseGPT API")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
@@ -112,9 +112,9 @@ with st.sidebar:
     selected_model = st.selectbox(
         "Модель нейросети:",
         options=[
-            "google/gemini-2.5-flash",
-            "google/gemini-2.0-flash",
-            "openai/gpt-4o-mini"
+            "google/gemini-2.5-flash-lite",
+            "google/gemini-2.0-flash-lite-preview-02-05:free",
+            "google/gemini-2.5-flash"
         ],
         index=0
     )
@@ -423,4 +423,4 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
         else:
             st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
-                
+                    
