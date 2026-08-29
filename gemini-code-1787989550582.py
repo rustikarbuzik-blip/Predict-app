@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
+import time
 from parsers import get_arbworld_moneyway, get_corner_stats_data, get_footystats_data
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
@@ -36,6 +37,7 @@ with tab2:
         st.image(uploaded_image, caption="Загруженный скриншот", width=450)
 
 def ask_gemini(prompt, image=None):
+    """Отправка запросов к Gemini с защитой от превышения Rate Limit (RPM)"""
     candidate_models = [
         'gemini-3.6-flash',
         'models/gemini-3.6-flash',
@@ -43,14 +45,17 @@ def ask_gemini(prompt, image=None):
         'models/gemini-3.0-flash'
     ]
     for model_name in candidate_models:
-        try:
-            m = genai.GenerativeModel(model_name)
-            inputs = [prompt, image] if image else [prompt]
-            response = m.generate_content(inputs)
-            return response.text
-        except Exception:
-            continue
-    raise Exception("Ошибка обращения к Gemini API. Проверьте ключ.")
+        for attempt in range(3):  # До 3 попыток на случай блокировки лимитов
+            try:
+                m = genai.GenerativeModel(model_name)
+                inputs = [prompt, image] if image else [prompt]
+                response = m.generate_content(inputs)
+                return response.text
+            except Exception as e:
+                # В случае ошибки лимитов делаем паузу и пробуем снова
+                time.sleep(3)
+                continue
+    raise Exception("Ошибка обращения к Gemini API. Превышен лимит запросов или некорректный ключ.")
 
 def parse_match_block(block_text):
     data = {}
@@ -86,11 +91,14 @@ if st.button("🚀 Сформировать прогнозы по всем ма�
             st.error("Не удалось найти матчи. Попробуйте загрузить более четкий скриншот.")
             st.stop()
 
-        st.success(f" Найдено матчей для анализа: **{len(matches_list)}**")
+        st.success(f"Найдено матчей для анализа: **{len(matches_list)}**")
 
         for i, match in enumerate(matches_list, 1):
-            with st.spinner(f"2/3 Парсинг всех сервисов и ИИ-анализ матча {i}/{len(matches_list)}: {match}..."):
+            with st.spinner(f"2/3 Анализ матча {i}/{len(matches_list)}: {match}..."):
                 
+                # Пауза перед запросом для обхода ограничений 15 RPM у бесплатного Gemini API
+                time.sleep(2)
+
                 # Вызовы парсеров реальных данных
                 real_arbworld = get_arbworld_moneyway(match)
                 real_corners = get_corner_stats_data(match)
