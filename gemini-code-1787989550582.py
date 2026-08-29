@@ -16,7 +16,7 @@ from parsers import (
 
 st.set_page_config(page_title="Match Analytics AI", page_icon="⚽", layout="wide")
 
-st.title("⚽ Аналитический центр спортивных матчей (VseGPT Free-Tier Ready 🚀)")
+st.title("⚽ Аналитический центр спортивных матчей (VseGPT Vision Ready 🚀)")
 st.caption("Агрегатор: Arbworld, Corner Stats, FootyStats, FBref & Oddsportal + SQLite + VseGPT API")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
@@ -113,8 +113,8 @@ with st.sidebar:
         "Модель нейросети:",
         options=[
             "google/gemini-2.5-flash-lite",
-            "google/gemini-2.0-flash-lite-preview-02-05:free",
-            "google/gemini-2.5-flash"
+            "google/gemini-2.5-flash",
+            "google/gemini-2.0-flash"
         ],
         index=0
     )
@@ -157,11 +157,15 @@ def ask_vsegpt(prompt, image=None):
     )
 
     if image:
+        # Для картинок VseGPT требует обязательный префикс vis-
+        target_model = f"vis-{selected_model}" if not selected_model.startswith("vis-") else selected_model
+        
+        # Сжатие картинки
         img_copy = image.copy()
-        img_copy.thumbnail((600, 600))
+        img_copy.thumbnail((700, 700))
         
         buffered = io.BytesIO()
-        img_copy.save(buffered, format="JPEG", quality=65)
+        img_copy.save(buffered, format="JPEG", quality=70)
         img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
         messages = [
@@ -180,12 +184,14 @@ def ask_vsegpt(prompt, image=None):
             }
         ]
     else:
+        # Для обычного текста используем стандартную модель
+        target_model = selected_model.replace("vis-", "")
         messages = [
             {"role": "user", "content": prompt}
         ]
 
     response = client.chat.completions.create(
-        model=selected_model,
+        model=target_model,
         messages=messages,
         temperature=0.3,
         max_tokens=350
@@ -423,4 +429,4 @@ if st.button("🚀 Сформировать прогнозы и Экспресс
                 st.success("🔥 ТОП-Экспресс дня отправлен в Telegram!")
         else:
             st.info("ℹ️ Нет матчей с уверенностью 9.5+/10 для Экспресса дня.")
-                    
+                
