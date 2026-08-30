@@ -15,7 +15,7 @@ UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
 st.title("⚽ Автономный AI-Каппер (Direct Multi-Scraper)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Soccer365 + FotMob + NB-Bet + Proxy")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | FotMob + NB-Bet + Soccer365 + Proxy")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU")
@@ -68,6 +68,33 @@ def send_telegram_message(text, token, chat_id):
         requests.post(url, json=payload, timeout=5)
     except:
         pass
+
+# ==============================================================================
+# 🧠 AI ЛОГИКА (исправлено: функция на месте)
+# ==============================================================================
+def ask_ai(prompt, model):
+    client = OpenAI(api_key=vsegpt_key, base_url="https://api.vsegpt.ru/v1")
+    res = client.chat.completions.create(
+        model=model, messages=[{"role": "user", "content": prompt}],
+        temperature=0.5, frequency_penalty=0.7, max_tokens=350
+    )
+    return res.choices[0].message.content
+
+def parse_block(text):
+    data = {}
+    current_key = None
+    keys = ['ВРЕМЯ_МАТЧА', 'СТАВКА', 'ИНДИВИДУАЛЬНЫЙ_ТОТАЛ', 'УГЛОВЫЕ', 'МОЙ_ВЫБОР', 'БОЛЕЕ_АГРЕССИВНО', 'УВЕРЕННОСТЬ', 'РАЗБОР']
+    for line in text.split('\n'):
+        if ':' in line:
+            k, v = [p.strip() for p in line.split(':', 1)]
+            k_upper = k.upper().replace(" ", "_")
+            if k_upper in keys:
+                current_key = k_upper
+                data[current_key] = v.replace("`", "").replace('"', '').strip()
+                continue
+        if current_key == 'РАЗБОР' and line.strip():
+            data[current_key] += " " + line.strip()
+    return data
 
 # Прямое формирование поисковых URL для наших целевых сайтов
 def get_target_urls(match_title):
