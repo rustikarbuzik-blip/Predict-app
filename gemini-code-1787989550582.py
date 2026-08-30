@@ -5,9 +5,9 @@ from datetime import datetime, timezone, timedelta
 import sqlite3
 import requests
 import html
+import urllib.parse
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
-from duckduckgo_search import DDGS
 
 st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout="wide")
 
@@ -16,7 +16,7 @@ UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
 st.title("⚽ Автономный AI-Каппер (PRO)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Авто-поиск + Proxy")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Авто-поиск Bing + Proxy")
 
 # ==============================================================================
 # ⚙️ НАСТРОЙКИ (из Secrets)
@@ -78,25 +78,33 @@ def send_telegram_message(text, token, chat_id):
         pass
 
 # ==============================================================================
-# 🕵️ ПАРСИНГ И ПОИСК (ЧЕРЕЗ ПРОКСИ)
+# 🕵️ ПАРСИНГ И ПОИСК (BING + PROXY)
 # ==============================================================================
 def search_links(match_title):
-    # Добавлен soccer365.ru, убраны заблокированные сайты
     sites = ["fotmob.com", "nb-bet.com", "soccer365.ru"]
     found_links = []
     
-    # Теперь поиск тоже идет через твой прокси!
-    try:
-        with DDGS(proxies=PROXY_URL) as ddgs:
-            for site in sites:
-                try:
-                    results = list(ddgs.text(f"{match_title} site:{site}", max_results=1))
-                    if results:
-                        found_links.append(results[0]['href'])
-                except:
-                    pass
-    except:
-        pass
+    # Кодируем название матча для URL (пробелы станут %20 и т.д.)
+    match_query = urllib.parse.quote(match_title)
+    
+    for site in sites:
+        # Формируем запрос напрямую в поисковик Bing
+        url = f"https://www.bing.com/search?q={match_query}+site:{site}"
+        try:
+            # Идем в Bing под прикрытием Chrome и прокси
+            res = cffi_requests.get(url, proxies=PROXIES, impersonate="chrome110", timeout=15)
+            if res.status_code == 200:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                # Ищем все ссылки на странице выдачи
+                for a in soup.find_all('a', href=True):
+                    link = a['href']
+                    # Нам нужна первая ссылка, которая содержит нужный домен
+                    if site in link and link.startswith("http") and "bing.com" not in link:
+                        found_links.append(link)
+                        break
+        except Exception as e:
+            pass
+            
     return found_links
 
 def scrape_url_data(url):
@@ -147,7 +155,7 @@ with st.sidebar:
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Реал Мадрид - Малага). Скрипт сам найдет ссылки через прокси.")
+st.caption("Формат: просто название матча (например: Реал Мадрид - Малага). Скрипт сам найдет ссылки через Bing.")
 
 match_input = st.text_area(
     "Поле ввода:", 
@@ -172,7 +180,7 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок. Пропускаю авто-поиск.")
                 urls = manual_urls
             else:
-                st.info("🔍 Ищу ссылки на FotMob, NB Bet и Soccer365 через прокси...")
+                st.info("🔍 Ищу ссылки в Bing Search через прокси...")
                 urls = search_links(match)
             
             if not urls:
