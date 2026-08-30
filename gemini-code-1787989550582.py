@@ -86,8 +86,8 @@ def search_links(match_title):
         return []
     
     found_links = []
-    # Запрос через официальный Google Custom Search API
     url = "https://www.googleapis.com/customsearch/v1"
+    
     params = {
         "key": google_api_key,
         "cx": google_cx,
@@ -157,11 +157,11 @@ with st.sidebar:
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Реал Мадрид - Малага). Google API сам найдет нужные страницы.")
+st.caption("Формат: просто название матча (например: Real Madrid - Malaga). Скрипт найдет ссылки через Google API.")
 
 match_input = st.text_area(
     "Поле ввода:", 
-    placeholder="Реал Мадрид - Малага\nСпартак - Зенит",
+    placeholder="Real Madrid - Malaga\nSpartak - Zenit",
     height=150
 )
 
@@ -249,7 +249,7 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                     f"🚩 <b>Угловые:</b> <code>{escape_html(res.get('УГЛОВЫЕ', '—'))}</code>\n"
                     f"🔥 <b>Мой выбор:</b> <code>{escape_html(res.get('МОЙ_ВЫБОР', '—'))}</code>\n"
                     f"⚡ <b>Агрессивно:</b> <code>{escape_html(res.get('БОЛЕЕ_АГРЕССИВНО', '—'))}</code>\n"
-                    f"⭐ <b>Уверенность:</b> {res.get('УВЕРЕННОСТЬ', '—')}\n\5n"
+                    f"⭐ <b>Уверенность:</b> {res.get('УВЕРЕННОСТЬ', '—')}\n\n"
                     f"📝 <b>Разбор:</b>\n{escape_html(res.get('РАЗБОР', '—'))}"
                 )
                 send_telegram_message(tg_text, tg_token, tg_chat_id)
