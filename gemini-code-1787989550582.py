@@ -5,7 +5,6 @@ from datetime import datetime, timezone, timedelta
 import sqlite3
 import requests
 import html
-import urllib.parse
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
 
@@ -15,8 +14,8 @@ st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout=
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Автономный AI-Каппер (PRO)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Авто-поиск Bing + Proxy")
+st.title("⚽ Автономный AI-Каппер (Google API)")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Google Custom Search + Proxy")
 
 # ==============================================================================
 # ⚙️ НАСТРОЙКИ (из Secrets)
@@ -25,13 +24,15 @@ vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU")
 tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "500635733")
 
+google_api_key = st.secrets.get("GOOGLE_API_KEY", "")
+google_cx = st.secrets.get("GOOGLE_CX", "")
+
 proxy_ip = st.secrets.get("PROXY_IP", "")
 proxy_port = st.secrets.get("PROXY_PORT", "")
 proxy_login = st.secrets.get("PROXY_LOGIN", "")
 proxy_pass = st.secrets.get("PROXY_PASS", "")
 
 PROXIES = None
-PROXY_URL = None
 if proxy_ip:
     PROXY_URL = f"http://{proxy_login}:{proxy_pass}@{proxy_ip}:{proxy_port}"
     PROXIES = {"http": PROXY_URL, "https": PROXY_URL}
@@ -78,33 +79,34 @@ def send_telegram_message(text, token, chat_id):
         pass
 
 # ==============================================================================
-# 🕵️ ПАРСИНГ И ПОИСК (BING + PROXY)
+# 🕵️ ПОИСК ЧЕРЕЗ GOOGLE API И ПАРСИНГ
 # ==============================================================================
 def search_links(match_title):
-    sites = ["fotmob.com", "nb-bet.com", "soccer365.ru"]
+    if not google_api_key or not google_cx:
+        return []
+    
     found_links = []
+    # Запрос через официальный Google Custom Search API
+    url = "https://www.googleapis.com/customsearch/v1"
+    params = {
+        "key": google_api_key,
+        "cx": google_cx,
+        "q": match_title,
+        "num": 5
+    }
     
-    # Кодируем название матча для URL (пробелы станут %20 и т.д.)
-    match_query = urllib.parse.quote(match_title)
-    
-    for site in sites:
-        # Формируем запрос напрямую в поисковик Bing
-        url = f"https://www.bing.com/search?q={match_query}+site:{site}"
-        try:
-            # Идем в Bing под прикрытием Chrome и прокси
-            res = cffi_requests.get(url, proxies=PROXIES, impersonate="chrome110", timeout=15)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                # Ищем все ссылки на странице выдачи
-                for a in soup.find_all('a', href=True):
-                    link = a['href']
-                    # Нам нужна первая ссылка, которая содержит нужный домен
-                    if site in link and link.startswith("http") and "bing.com" not in link:
-                        found_links.append(link)
-                        break
-        except Exception as e:
-            pass
-            
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            items = data.get("items", [])
+            for item in items:
+                link = item.get("link")
+                if link:
+                    found_links.append(link)
+    except Exception as e:
+        pass
+        
     return found_links
 
 def scrape_url_data(url):
@@ -155,7 +157,7 @@ with st.sidebar:
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Реал Мадрид - Малага). Скрипт сам найдет ссылки через Bing.")
+st.caption("Формат: просто название матча (например: Реал Мадрид - Малага). Google API сам найдет нужные страницы.")
 
 match_input = st.text_area(
     "Поле ввода:", 
@@ -180,11 +182,11 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок. Пропускаю авто-поиск.")
                 urls = manual_urls
             else:
-                st.info("🔍 Ищу ссылки в Bing Search через прокси...")
+                st.info("🔍 Ищу ссылки через Google Custom Search API...")
                 urls = search_links(match)
             
             if not urls:
-                st.warning("⚠️ Авто-поиск не дал результатов. Вставь ссылки вручную под названием матча!")
+                st.warning("⚠️ Google API не нашел ссылки. Проверь правильность написания команд.")
                 continue
                 
             scraped_context = ""
@@ -247,7 +249,7 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                     f"🚩 <b>Угловые:</b> <code>{escape_html(res.get('УГЛОВЫЕ', '—'))}</code>\n"
                     f"🔥 <b>Мой выбор:</b> <code>{escape_html(res.get('МОЙ_ВЫБОР', '—'))}</code>\n"
                     f"⚡ <b>Агрессивно:</b> <code>{escape_html(res.get('БОЛЕЕ_АГРЕССИВНО', '—'))}</code>\n"
-                    f"⭐ <b>Уверенность:</b> {res.get('УВЕРЕННОСТЬ', '—')}\n\n"
+                    f"⭐ <b>Уверенность:</b> {res.get('УВЕРЕННОСТЬ', '—')}\n\5n"
                     f"📝 <b>Разбор:</b>\n{escape_html(res.get('РАЗБОР', '—'))}"
                 )
                 send_telegram_message(tg_text, tg_token, tg_chat_id)
