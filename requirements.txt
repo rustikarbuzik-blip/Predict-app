@@ -1,6 +1,4 @@
 streamlit
-requests
-Pillow
-beautifulsoup4
 openai
-cloudscraper
+beautifulsoup4
+curl_cffi
