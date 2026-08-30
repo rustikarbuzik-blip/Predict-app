@@ -2,4 +2,3 @@ streamlit
 openai
 beautifulsoup4
 curl_cffi
-duckduckgo-search
