@@ -7,14 +7,15 @@ import requests
 import html
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
+from urllib.parse import quote
 
 st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout="wide")
 
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Автономный AI-Каппер (Google API + Multi-Source)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Google Search + Proxy")
+st.title("⚽ Автономный AI-Каппер (Hybrid Mode)")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Авто-поиск + Ручные ссылки + Proxy")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU")
@@ -95,32 +96,35 @@ def parse_block(text):
             data[current_key] += " " + line.strip()
     return data
 
+# Фоновый поиск через Google API или прямая генерация альтернативных поисковых урлов
 def search_links(match_title):
-    if not google_api_key or not google_cx:
-        return []
-    
-    found_links = []
-    url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "key": google_api_key,
-        "cx": google_cx,
-        "q": f"{match_title} статистика прогноз",
-        "num": 4
-    }
-    
-    try:
-        res = requests.get(url, params=params, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            items = data.get("items", [])
-            for item in items:
-                link = item.get("link")
-                if link:
-                    found_links.append(link)
-    except:
-        pass
-        
-    return found_links
+    links = []
+    if google_api_key and google_cx:
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {
+            "key": google_api_key,
+            "cx": google_cx,
+            "q": f"{match_title} статистика прогноз",
+            "num": 3
+        }
+        try:
+            res = requests.get(url, params=params, timeout=8)
+            if res.status_code == 200:
+                data = res.json()
+                for item in data.get("items", []):
+                    if item.get("link"):
+                        links.append(item.get("link"))
+        except:
+            pass
+            
+    # Если Google API пустой, подставляем прямые поисковые запросы на Soccer365 и FotMob
+    if not links:
+        q = quote(match_title.strip())
+        links = [
+            f"https://soccer365.ru/s/?q={q}",
+            f"https://www.fotmob.com/search?q={q}"
+        ]
+    return links
 
 def scrape_url_data(url):
     if not PROXIES: return None
@@ -140,11 +144,11 @@ with st.sidebar:
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Real Madrid - Malaga).")
+st.caption("Формат: название матча, а с новой строки можно указать прямую ссылку на статистику.")
 
 match_input = st.text_area(
     "Поле ввода:", 
-    placeholder="Real Madrid - Malaga\nSpartak - Zenit",
+    placeholder="Real Madrid - Malaga\nhttps://soccer365.ru/matches/... (необязательно)",
     height=150
 )
 
@@ -162,16 +166,12 @@ if st.button("🚀 Собрать статистику и дать прогно�
         
         with st.expander(f"⚙️ Обработка: {match}", expanded=True):
             if manual_urls:
-                st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок.")
+                st.info(f"🔗 Использую {len(manual_urls)} ручных ссылок.")
                 urls = manual_urls
             else:
-                st.info("🔍 Ищу страницы матча через Google API...")
+                st.info("🔍 Ищу страницы матча...")
                 urls = search_links(match)
             
-            if not urls:
-                st.warning("⚠️ Google API не нашел ссылки. Укажи ссылку вручную с новой строки.")
-                continue
-                
             scraped_context = ""
             st.markdown("### Статус загрузки:")
             
@@ -184,14 +184,14 @@ if st.button("🚀 Собрать статистику и дать прогно�
                 with st.spinner(f"Тяну данные с {domain}..."):
                     data_text = scrape_url_data(url)
                 
-                if data_text and len(data_text) > 300:
+                if data_text and len(data_text) > 200:
                     st.success(f"✅ **{domain}** — Успешно загружено")
                     scraped_context += f"\nДанные ({domain}):\n{data_text}\n"
                 else:
                     st.error(f"❌ **{domain}** — Ошибка или пустой ответ")
             
             if not scraped_context:
-                st.error("❌ Не удалось вытянуть данные со страниц. Укажи прямую ссылку на матч.")
+                st.error("❌ Не удалось получить данные. Добавь прямую ссылку на матч с новой строки под названием команд.")
                 continue
                 
             st.success("🤖 Данные собраны. Генерирую прогноз...")
