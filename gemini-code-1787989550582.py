@@ -10,22 +10,15 @@ from curl_cffi import requests as cffi_requests
 
 st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout="wide")
 
-# Время по Уфе (UTC+5)
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Автономный AI-Каппер (Google API)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Google Custom Search + Proxy")
+st.title("⚽ Автономный AI-Каппер (Multi-Source Search)")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | FotMob + NB-Bet + Soccer365 + Proxy")
 
-# ==============================================================================
-# ⚙️ НАСТРОЙКИ (из Secrets)
-# ==============================================================================
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU")
 tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "500635733")
-
-google_api_key = st.secrets.get("GOOGLE_API_KEY", "")
-google_cx = st.secrets.get("GOOGLE_CX", "")
 
 proxy_ip = st.secrets.get("PROXY_IP", "")
 proxy_port = st.secrets.get("PROXY_PORT", "")
@@ -37,9 +30,6 @@ if proxy_ip:
     PROXY_URL = f"http://{proxy_login}:{proxy_pass}@{proxy_ip}:{proxy_port}"
     PROXIES = {"http": PROXY_URL, "https": PROXY_URL}
 
-# ==============================================================================
-# 🗄️ БАЗА ДАННЫХ И TELEGRAM
-# ==============================================================================
 def init_db():
     conn = sqlite3.connect("match_history.db", check_same_thread=False)
     conn.execute('''
@@ -78,35 +68,39 @@ def send_telegram_message(text, token, chat_id):
     except:
         pass
 
-# ==============================================================================
-# 🕵️ ПОИСК ЧЕРЕЗ GOOGLE API И ПАРСИНГ
-# ==============================================================================
+# Умный поиск по ключевым спорт-порталам (FotMob, NB-Bet, Soccer365)
 def search_links(match_title):
-    if not google_api_key or not google_cx:
-        return []
-    
     found_links = []
-    url = "https://www.googleapis.com/customsearch/v1"
+    # Ищем упоминания матча в связке с нужными доменами через DuckDuckGo
+    queries = [
+        f"{match_title} site:soccer365.ru",
+        f"{match_title} site:nb-bet.com",
+        f"{match_title} site:fotmob.com",
+        f"{match_title} статистика прогноз"
+    ]
     
-    params = {
-        "key": google_api_key,
-        "cx": google_cx,
-        "q": match_title,
-        "num": 5
-    }
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     
-    try:
-        res = requests.get(url, params=params, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            items = data.get("items", [])
-            for item in items:
-                link = item.get("link")
-                if link:
-                    found_links.append(link)
-    except Exception as e:
-        pass
-        
+    for q in queries:
+        search_url = f"https://html.duckduckgo.com/html/?q={q}"
+        try:
+            res = cffi_requests.get(search_url, headers=headers, proxies=PROXIES, impersonate="chrome110", timeout=8)
+            if res.status_code == 200:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                for a in soup.find_all('a', class_='result__url'):
+                    href = a.get('href')
+                    if href and 'http' in href and href not in found_links:
+                        # Отбираем ссылки с целевых ресурсов или общие спортивные
+                        if any(domain in href for domain in ['soccer365', 'nb-bet', 'fotmob', 'footystats', 'flashscore']):
+                            found_links.append(href)
+                            if len(found_links) >= 4:
+                                break
+        except:
+            continue
+            
+        if len(found_links) >= 4:
+            break
+            
     return found_links
 
 def scrape_url_data(url):
@@ -122,42 +116,12 @@ def scrape_url_data(url):
     except:
         return None
 
-# ==============================================================================
-# 🧠 AI ЛОГИКА
-# ==============================================================================
-def ask_ai(prompt, model):
-    client = OpenAI(api_key=vsegpt_key, base_url="https://api.vsegpt.ru/v1")
-    res = client.chat.completions.create(
-        model=model, messages=[{"role": "user", "content": prompt}],
-        temperature=0.5, frequency_penalty=0.7, max_tokens=350
-    )
-    return res.choices[0].message.content
-
-def parse_block(text):
-    data = {}
-    current_key = None
-    keys = ['ВРЕМЯ_МАТЧА', 'СТАВКА', 'ИНДИВИДУАЛЬНЫЙ_ТОТАЛ', 'УГЛОВЫЕ', 'МОЙ_ВЫБОР', 'БОЛЕЕ_АГРЕССИВНО', 'УВЕРЕННОСТЬ', 'РАЗБОР']
-    for line in text.split('\n'):
-        if ':' in line:
-            k, v = [p.strip() for p in line.split(':', 1)]
-            k_upper = k.upper().replace(" ", "_")
-            if k_upper in keys:
-                current_key = k_upper
-                data[current_key] = v.replace("`", "").replace('"', '').strip()
-                continue
-        if current_key == 'РАЗБОР' and line.strip():
-            data[current_key] += " " + line.strip()
-    return data
-
-# ==============================================================================
-# 📝 ИНТЕРФЕЙС
-# ==============================================================================
 with st.sidebar:
     st.header("⚙️ Настройки AI")
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Real Madrid - Malaga). Скрипт найдет ссылки через Google API.")
+st.caption("Формат: просто название матча (например: Real Madrid - Malaga).")
 
 match_input = st.text_area(
     "Поле ввода:", 
@@ -182,11 +146,11 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок. Пропускаю авто-поиск.")
                 urls = manual_urls
             else:
-                st.info("🔍 Ищу ссылки через Google Custom Search API...")
+                st.info("🔍 Ищу ссылки на FotMob, NB-Bet и Soccer365...")
                 urls = search_links(match)
             
             if not urls:
-                st.warning("⚠️ Google API не нашел ссылки. Проверь правильность написания команд.")
+                st.warning("⚠️ Не удалось найти ссылки автоматически. Попробуй указать ссылку вручную с новой строки.")
                 continue
                 
             scraped_context = ""
@@ -211,11 +175,11 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 st.error("❌ Ни один сайт не отдал данные. ИИ не сможет сделать качественный прогноз.")
                 continue
                 
-            st.success("🤖 Данные собраны. Генерирую прогноз...")
+            st.success("🤖 Данные собраны со всех источников. Генерирую прогноз...")
             
             prompt = f"""
             Ты профессиональный каппер. Прогноз на матч: "{match}". Время: {time_str} (Уфа).
-            Сырые данные (найди тренды по угловым, форме команд и ставкам):
+            Сырые данные с FotMob, NB-Bet, Soccer365 и других платформ (найди тренды по угловым, форме команд и ставкам):
             {scraped_context}
             
             ВЫДАЙ СТРОГО ПО ШАБЛОНУ:
