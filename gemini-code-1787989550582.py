@@ -163,7 +163,7 @@ with st.sidebar:
                 scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
 
                 try:
-                    res = scraper.get(test_url, proxies=proxies, timeout=15)
+                    res = scraper.get(test_url, proxies=proxies, timeout=30)
                     if res.status_code == 200:
                         soup = BeautifulSoup(res.text, 'html.parser')
                         st.success("✅ УСПЕХ! Сайт нас пустил.")
