@@ -7,14 +7,15 @@ import requests
 import html
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
+from urllib.parse import quote
 
 st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout="wide")
 
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Автономный AI-Каппер (Multi-Source Search)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | FotMob + NB-Bet + Soccer365 + Proxy")
+st.title("⚽ Автономный AI-Каппер (Direct Multi-Scraper)")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Soccer365 + FotMob + NB-Bet + Proxy")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU")
@@ -68,40 +69,15 @@ def send_telegram_message(text, token, chat_id):
     except:
         pass
 
-# Умный поиск по ключевым спорт-порталам (FotMob, NB-Bet, Soccer365)
-def search_links(match_title):
-    found_links = []
-    # Ищем упоминания матча в связке с нужными доменами через DuckDuckGo
-    queries = [
-        f"{match_title} site:soccer365.ru",
-        f"{match_title} site:nb-bet.com",
-        f"{match_title} site:fotmob.com",
-        f"{match_title} статистика прогноз"
+# Прямое формирование поисковых URL для наших целевых сайтов
+def get_target_urls(match_title):
+    query = quote(match_title.strip())
+    urls = [
+        f"https://soccer365.ru/s/?q={query}",
+        f"https://www.nb-bet.com/?s={query}",
+        f"https://www.fotmob.com/search?q={query}"
     ]
-    
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    
-    for q in queries:
-        search_url = f"https://html.duckduckgo.com/html/?q={q}"
-        try:
-            res = cffi_requests.get(search_url, headers=headers, proxies=PROXIES, impersonate="chrome110", timeout=8)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                for a in soup.find_all('a', class_='result__url'):
-                    href = a.get('href')
-                    if href and 'http' in href and href not in found_links:
-                        # Отбираем ссылки с целевых ресурсов или общие спортивные
-                        if any(domain in href for domain in ['soccer365', 'nb-bet', 'fotmob', 'footystats', 'flashscore']):
-                            found_links.append(href)
-                            if len(found_links) >= 4:
-                                break
-        except:
-            continue
-            
-        if len(found_links) >= 4:
-            break
-            
-    return found_links
+    return urls
 
 def scrape_url_data(url):
     if not PROXIES: return None
@@ -121,7 +97,7 @@ with st.sidebar:
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Real Madrid - Malaga).")
+st.caption("Формат: просто название матча (например: Real Madrid - Malaga) или свои ссылки с новой строки.")
 
 match_input = st.text_area(
     "Поле ввода:", 
@@ -129,7 +105,7 @@ match_input = st.text_area(
     height=150
 )
 
-if st.button("🚀 Найти статистику и дать прогноз", type="primary"):
+if st.button("🚀 Собрать статистику и дать прогноз", type="primary"):
     blocks = match_input.strip().split("\n\n")
     time_str = now_ufa.strftime('%d.%m.%Y %H:%M')
     
@@ -143,15 +119,11 @@ if st.button("🚀 Найти статистику и дать прогноз", 
         
         with st.expander(f"⚙️ Обработка: {match}", expanded=True):
             if manual_urls:
-                st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок. Пропускаю авто-поиск.")
+                st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок.")
                 urls = manual_urls
             else:
-                st.info("🔍 Ищу ссылки на FotMob, NB-Bet и Soccer365...")
-                urls = search_links(match)
-            
-            if not urls:
-                st.warning("⚠️ Не удалось найти ссылки автоматически. Попробуй указать ссылку вручную с новой строки.")
-                continue
+                st.info("🔍 Формирую прямые запросы к Soccer365, NB-Bet и FotMob...")
+                urls = get_target_urls(match)
                 
             scraped_context = ""
             st.markdown("### Статус загрузки:")
@@ -160,26 +132,26 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 try:
                     domain = url.split('/')[2].replace("www.", "")
                 except:
-                    domain = "Неизвестный сайт"
+                    domain = "Целевой сайт"
                     
                 with st.spinner(f"Тяну данные с {domain}..."):
                     data_text = scrape_url_data(url)
                 
-                if data_text:
-                    st.success(f"✅ **{domain}** — Успешно загружено")
+                if data_text and len(data_text) > 200:
+                    st.success(f"✅ **{domain}** — Данные успешно получены")
                     scraped_context += f"\nДанные ({domain}):\n{data_text}\n"
                 else:
-                    st.error(f"❌ **{domain}** — Ошибка (блокировка или таймаут)")
+                    st.error(f"❌ **{domain}** — Заблокировано или пустой ответ")
             
             if not scraped_context:
-                st.error("❌ Ни один сайт не отдал данные. ИИ не сможет сделать качественный прогноз.")
+                st.error("❌ Автоматические запросы не прошли. Укажи прямую ссылку на матч с новой строки под названием команд.")
                 continue
                 
-            st.success("🤖 Данные собраны со всех источников. Генерирую прогноз...")
+            st.success("🤖 Данные собраны. Генерирую прогноз...")
             
             prompt = f"""
             Ты профессиональный каппер. Прогноз на матч: "{match}". Время: {time_str} (Уфа).
-            Сырые данные с FotMob, NB-Bet, Soccer365 и других платформ (найди тренды по угловым, форме команд и ставкам):
+            Сырые данные (найди тренды по угловым, форме команд и ставкам):
             {scraped_context}
             
             ВЫДАЙ СТРОГО ПО ШАБЛОНУ:
