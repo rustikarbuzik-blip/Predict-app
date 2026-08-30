@@ -15,7 +15,7 @@ st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout=
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Автономный AI-Каппер (5 Источников)")
+st.title("⚽ Автономный AI-Каппер (PRO)")
 st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Авто-поиск + Proxy")
 
 # ==============================================================================
@@ -31,6 +31,7 @@ proxy_login = st.secrets.get("PROXY_LOGIN", "")
 proxy_pass = st.secrets.get("PROXY_PASS", "")
 
 PROXIES = None
+PROXY_URL = None
 if proxy_ip:
     PROXY_URL = f"http://{proxy_login}:{proxy_pass}@{proxy_ip}:{proxy_port}"
     PROXIES = {"http": PROXY_URL, "https": PROXY_URL}
@@ -77,19 +78,25 @@ def send_telegram_message(text, token, chat_id):
         pass
 
 # ==============================================================================
-# 🕵️ ПАРСИНГ И ПОИСК
+# 🕵️ ПАРСИНГ И ПОИСК (ЧЕРЕЗ ПРОКСИ)
 # ==============================================================================
 def search_links(match_title):
-    sites = ["fotmob.com", "nb-bet.com", "arbworld.net", "footystats.org", "corner-stats.com"]
+    # Добавлен soccer365.ru, убраны заблокированные сайты
+    sites = ["fotmob.com", "nb-bet.com", "soccer365.ru"]
     found_links = []
-    with DDGS() as ddgs:
-        for site in sites:
-            try:
-                results = list(ddgs.text(f"{match_title} site:{site}", max_results=1))
-                if results:
-                    found_links.append(results[0]['href'])
-            except:
-                pass
+    
+    # Теперь поиск тоже идет через твой прокси!
+    try:
+        with DDGS(proxies=PROXY_URL) as ddgs:
+            for site in sites:
+                try:
+                    results = list(ddgs.text(f"{match_title} site:{site}", max_results=1))
+                    if results:
+                        found_links.append(results[0]['href'])
+                except:
+                    pass
+    except:
+        pass
     return found_links
 
 def scrape_url_data(url):
@@ -139,13 +146,13 @@ with st.sidebar:
     st.header("⚙️ Настройки AI")
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
-st.markdown("### Введи матчи и ссылки на статистику")
-st.caption("Формат: Название матча. Если авто-поиск не сработает, добавь ссылки вручную с новой строки.")
+st.markdown("### Введи матчи")
+st.caption("Формат: просто название матча (например: Реал Мадрид - Малага). Скрипт сам найдет ссылки через прокси.")
 
 match_input = st.text_area(
     "Поле ввода:", 
-    placeholder="Реал Мадрид - Малага\nhttps://www.fotmob.com/...\nhttps://nb-bet.com/...\n\nСпартак - Зенит",
-    height=200
+    placeholder="Реал Мадрид - Малага\nСпартак - Зенит",
+    height=150
 )
 
 if st.button("🚀 Найти статистику и дать прогноз", type="primary"):
@@ -157,7 +164,7 @@ if st.button("🚀 Найти статистику и дать прогноз", 
         if not lines: 
             continue
             
-        match = lines[0] # Первая строка всегда название матча
+        match = lines[0]
         manual_urls = [link for link in lines[1:] if link.startswith("http")]
         
         with st.expander(f"⚙️ Обработка: {match}", expanded=True):
@@ -165,7 +172,7 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок. Пропускаю авто-поиск.")
                 urls = manual_urls
             else:
-                st.info("🔍 Ищу ссылки на статистику на 5 сайтах (DuckDuckGo)...")
+                st.info("🔍 Ищу ссылки на FotMob, NB Bet и Soccer365 через прокси...")
                 urls = search_links(match)
             
             if not urls:
@@ -173,8 +180,8 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 continue
                 
             scraped_context = ""
-            
             st.markdown("### Статус загрузки:")
+            
             for url in urls:
                 try:
                     domain = url.split('/')[2].replace("www.", "")
@@ -224,7 +231,6 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 st.markdown(f"⚡ **Агрессивно:** `{res.get('БОЛЕЕ_АГРЕССИВНО', '—')}`")
                 st.markdown(f"📋 **Разбор:**\n{res.get('РАЗБОР', '—')}")
                 
-                # Отправка в Telegram
                 tg_text = (
                     f"⚽ <b>{escape_html(match)}</b>\n"
                     f"🕒 <b>Время (Уфа):</b> <code>{escape_html(res.get('ВРЕМЯ_МАТЧА', time_str))}</code>\n\n"
@@ -238,7 +244,6 @@ if st.button("🚀 Найти статистику и дать прогноз", 
                 )
                 send_telegram_message(tg_text, tg_token, tg_chat_id)
                 
-                # Сохранение в БД
                 save_match({
                     "match": match, "match_time_ufa": res.get('ВРЕМЯ_МАТЧА', time_str),
                     "bet_main": res.get('СТАВКА'), "ind_total": res.get('ИНДИВИДУАЛЬНЫЙ_ТОТАЛ'),
