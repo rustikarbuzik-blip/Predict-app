@@ -7,19 +7,21 @@ import requests
 import html
 from bs4 import BeautifulSoup
 from curl_cffi import requests as cffi_requests
-from urllib.parse import quote
 
 st.set_page_config(page_title="Match Analytics AI Pro", page_icon="⚽", layout="wide")
 
 UFA_TZ = timezone(timedelta(hours=5))
 now_ufa = datetime.now(UFA_TZ)
 
-st.title("⚽ Автономный AI-Каппер (Direct Multi-Scraper)")
-st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | FotMob + NB-Bet + Soccer365 + Proxy")
+st.title("⚽ Автономный AI-Каппер (Google API + Multi-Source)")
+st.caption(f"Время: **{now_ufa.strftime('%d.%m.%Y %H:%M')} (Уфа)** | Google Search + Proxy")
 
 vsegpt_key = st.secrets.get("VSEGPT_API_KEY", "")
 tg_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8758421691:AAFfIvHR1g0ak2QejRqhNrpsy-DRXaHgTFU")
 tg_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "500635733")
+
+google_api_key = st.secrets.get("GOOGLE_API_KEY", "")
+google_cx = st.secrets.get("GOOGLE_CX", "")
 
 proxy_ip = st.secrets.get("PROXY_IP", "")
 proxy_port = st.secrets.get("PROXY_PORT", "")
@@ -69,9 +71,6 @@ def send_telegram_message(text, token, chat_id):
     except:
         pass
 
-# ==============================================================================
-# 🧠 AI ЛОГИКА (исправлено: функция на месте)
-# ==============================================================================
 def ask_ai(prompt, model):
     client = OpenAI(api_key=vsegpt_key, base_url="https://api.vsegpt.ru/v1")
     res = client.chat.completions.create(
@@ -96,15 +95,32 @@ def parse_block(text):
             data[current_key] += " " + line.strip()
     return data
 
-# Прямое формирование поисковых URL для наших целевых сайтов
-def get_target_urls(match_title):
-    query = quote(match_title.strip())
-    urls = [
-        f"https://soccer365.ru/s/?q={query}",
-        f"https://www.nb-bet.com/?s={query}",
-        f"https://www.fotmob.com/search?q={query}"
-    ]
-    return urls
+def search_links(match_title):
+    if not google_api_key or not google_cx:
+        return []
+    
+    found_links = []
+    url = "https://www.googleapis.com/customsearch/v1"
+    params = {
+        "key": google_api_key,
+        "cx": google_cx,
+        "q": f"{match_title} статистика прогноз",
+        "num": 4
+    }
+    
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            items = data.get("items", [])
+            for item in items:
+                link = item.get("link")
+                if link:
+                    found_links.append(link)
+    except:
+        pass
+        
+    return found_links
 
 def scrape_url_data(url):
     if not PROXIES: return None
@@ -124,7 +140,7 @@ with st.sidebar:
     selected_model = st.selectbox("Модель:", ["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"], index=0)
 
 st.markdown("### Введи матчи")
-st.caption("Формат: просто название матча (например: Real Madrid - Malaga) или свои ссылки с новой строки.")
+st.caption("Формат: просто название матча (например: Real Madrid - Malaga).")
 
 match_input = st.text_area(
     "Поле ввода:", 
@@ -149,8 +165,12 @@ if st.button("🚀 Собрать статистику и дать прогно�
                 st.info(f"🔗 Найдено {len(manual_urls)} ручных ссылок.")
                 urls = manual_urls
             else:
-                st.info("🔍 Формирую прямые запросы к Soccer365, NB-Bet и FotMob...")
-                urls = get_target_urls(match)
+                st.info("🔍 Ищу страницы матча через Google API...")
+                urls = search_links(match)
+            
+            if not urls:
+                st.warning("⚠️ Google API не нашел ссылки. Укажи ссылку вручную с новой строки.")
+                continue
                 
             scraped_context = ""
             st.markdown("### Статус загрузки:")
@@ -159,26 +179,26 @@ if st.button("🚀 Собрать статистику и дать прогно�
                 try:
                     domain = url.split('/')[2].replace("www.", "")
                 except:
-                    domain = "Целевой сайт"
+                    domain = "Сайт"
                     
                 with st.spinner(f"Тяну данные с {domain}..."):
                     data_text = scrape_url_data(url)
                 
-                if data_text and len(data_text) > 200:
-                    st.success(f"✅ **{domain}** — Данные успешно получены")
+                if data_text and len(data_text) > 300:
+                    st.success(f"✅ **{domain}** — Успешно загружено")
                     scraped_context += f"\nДанные ({domain}):\n{data_text}\n"
                 else:
-                    st.error(f"❌ **{domain}** — Заблокировано или пустой ответ")
+                    st.error(f"❌ **{domain}** — Ошибка или пустой ответ")
             
             if not scraped_context:
-                st.error("❌ Автоматические запросы не прошли. Укажи прямую ссылку на матч с новой строки под названием команд.")
+                st.error("❌ Не удалось вытянуть данные со страниц. Укажи прямую ссылку на матч.")
                 continue
                 
             st.success("🤖 Данные собраны. Генерирую прогноз...")
             
             prompt = f"""
             Ты профессиональный каппер. Прогноз на матч: "{match}". Время: {time_str} (Уфа).
-            Сырые данные (найди тренды по угловым, форме команд и ставкам):
+            Сырые данные с сайтов статистики:
             {scraped_context}
             
             ВЫДАЙ СТРОГО ПО ШАБЛОНУ:
